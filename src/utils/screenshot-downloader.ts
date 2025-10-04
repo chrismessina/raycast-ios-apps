@@ -1,7 +1,6 @@
 // Screenshot downloader utility functions
 import fs from "fs";
 import path from "path";
-import fetch from "node-fetch";
 import { promisify } from "util";
 import pLimit from "p-limit";
 import { showFailureToast } from "@raycast/utils";
@@ -189,7 +188,6 @@ async function downloadFileSecure(url: string, filePath: string): Promise<void> 
         status: response.status,
         statusText: response.statusText,
         url: response.url,
-        headers: Object.fromEntries(response.headers.entries()),
       };
 
       logger.error(`[Screenshot Downloader] HTTP error for ${url}:`, errorDetails);

@@ -1,5 +1,4 @@
 // App Store web scraper utility functions using Shoebox JSON method
-import nodeFetch from "node-fetch";
 import { AppDetails, PlatformType, ScreenshotInfo, PlatformPreferences } from "../types";
 import { logger } from "./logger";
 import { getPreferenceValues, showToast, Toast } from "@raycast/api";
@@ -202,7 +201,7 @@ export async function scrapeAppStoreScreenshots(
     const baseUrl = getAppStoreUrl(app);
     logger.log(`[Scraper] Fetching App Store page: ${baseUrl}`);
 
-    const response = await nodeFetch(baseUrl);
+    const response = await fetch(baseUrl);
     if (!response.ok) {
       await handleToolError(
         new Error(`Failed to fetch App Store page: ${response.status}`),

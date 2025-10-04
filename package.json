@@ -245,7 +245,6 @@
     "@raycast/utils": "^1.17.0",
     "adm-zip": "^0.5.16",
     "lodash": "^4.17.21",
-    "node-fetch": "^3.3.2",
     "p-limit": "^6.2.0",
     "react": "^19.0.0"
   },
@@ -257,7 +256,7 @@
     "@types/p-limit": "^2.1.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "eslint": "^8.57.0",
+    "eslint": "^8.57.1",
     "prettier": "^3.3.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

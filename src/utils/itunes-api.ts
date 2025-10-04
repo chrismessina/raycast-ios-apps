@@ -1,5 +1,4 @@
 // iTunes API utility functions
-import fetch from "node-fetch";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails, ITunesResponse, ITunesResult } from "../types";
 import { logger } from "./logger";
