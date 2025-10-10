@@ -233,7 +233,7 @@ export async function ensureAuthenticated(options?: {
         } else if (status.authenticated === true || status.success === true) {
           return true; // Already authenticated
         }
-      } catch (parseError) {
+      } catch {
         // If we can't parse as JSON, check the output
         if (stdout.trim() === "" && stderr.includes("Not authenticated")) {
           // Not authenticated - this is expected

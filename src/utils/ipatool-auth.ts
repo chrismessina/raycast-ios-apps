@@ -56,7 +56,7 @@ export async function getAuthInfo(): Promise<AuthInfo> {
       const authenticated = Boolean(parsed.authenticated || parsed.success);
       return { authenticated, success: parsed.success, account: parsed.account ?? null, raw: stdout };
     }
-  } catch (e) {
+  } catch {
     // Fall through to textual checks below
   }
 
@@ -100,7 +100,7 @@ export async function login({ email, password, code, onTwoFactorPrompt }: LoginO
         twoFANotified = true;
         try {
           onTwoFactorPrompt?.("Two-factor authentication required. Enter the 6-digit code.");
-        } catch (_) {
+        } catch {
           // Ignore callback errors
         }
       }

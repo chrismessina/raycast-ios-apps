@@ -66,9 +66,7 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
       const mappedApps = itunesResults.map((result) => convertITunesResultToAppDetails(result));
 
       // Deduplicate apps by bundleId to prevent duplicate keys in React
-      const uniqueApps = Array.from(
-        new Map(mappedApps.map((app) => [app.bundleId, app])).values()
-      );
+      const uniqueApps = Array.from(new Map(mappedApps.map((app) => [app.bundleId, app])).values());
 
       setApps(uniqueApps);
       setTotalResults(uniqueApps.length);

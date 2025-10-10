@@ -76,7 +76,7 @@ async function ensureSecureDirectory(dirPath: string): Promise<void> {
       try {
         fs.accessSync(dirPath, fs.constants.W_OK);
         logger.log(`[Screenshot Downloader] Directory exists and is writable: ${dirPath}`);
-      } catch (accessError) {
+      } catch {
         throw new Error(`Directory exists but is not writable: ${dirPath}`);
       }
     } else {
@@ -91,7 +91,7 @@ async function ensureSecureDirectory(dirPath: string): Promise<void> {
 
       try {
         fs.accessSync(dirPath, fs.constants.W_OK);
-      } catch (accessError) {
+      } catch {
         throw new Error(`Created directory is not writable: ${dirPath}`);
       }
     }

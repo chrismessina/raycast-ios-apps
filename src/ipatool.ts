@@ -438,11 +438,11 @@ export async function purchaseApp(
               return true;
             }
           }
-        } catch (e) {
+        } catch {
           // ignore bad lines
         }
       }
-    } catch (e) {
+    } catch {
       // ignore parse errors, fallback to analyzer below
     }
 
@@ -948,44 +948,66 @@ export async function downloadApp(
 
               // Check if this is a license required error for a free app
               if (errorAnalysis.isLicenseRequired && isFreeApp(price)) {
-                logger.log(
-                  `[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`,
-                );
+                // Check if this is an Apple built-in app (these cannot be downloaded via ipatool)
+                // Apple's built-in apps (e.g., Apple Wallet, Apple Music) have bundle IDs starting with "com.apple."
+                // and cannot be downloaded through third-party tools due to App Store restrictions
+                const isAppleBuiltInApp = bundleId.startsWith("com.apple.");
 
-                try {
-                  const purchaseSuccess = await purchaseApp(bundleId, appName, options);
+                if (isAppleBuiltInApp) {
+                  logger.log(
+                    `[ipatool] License required for Apple built-in app ${appName || bundleId}. These apps cannot be downloaded via third-party tools.`,
+                  );
 
-                  if (purchaseSuccess) {
-                    logger.log(
-                      `[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`,
-                    );
-                    if (!suppressHUD) {
-                      await showHUD(`License obtained. Retrying download...`);
-                    }
+                  // Provide a more helpful message for Apple's built-in apps
+                  finalErrorMessage = `"${appName || bundleId}" is an Apple built-in app and cannot be downloaded using third-party tools like ipatool. These apps are pre-installed on iOS devices or available only through official Apple channels.`;
 
-                    // Retry the download after successful license purchase
-                    return downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, options);
-                  } else {
-                    logger.log(
-                      `[ipatool] License purchase failed for ${appName || bundleId}. Proceeding with error handling.`,
-                    );
-                    if (!suppressHUD) {
-                      await showHUD(`Failed to obtain license for ${appName || bundleId}`);
-                    }
-
-                    // Update the error message to be more specific about license purchase failure
-                    finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to authentication issues or App Store restrictions.`;
-                  }
-                } catch (purchaseError) {
-                  logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
                   if (!suppressHUD) {
-                    await showHUD(`License purchase error for ${appName || bundleId}`);
+                    await showToast({
+                      style: Toast.Style.Failure,
+                      title: "Apple Built-in App",
+                      message: `${appName || bundleId} cannot be downloaded via ipatool`,
+                    });
                   }
+                } else {
+                  logger.log(
+                    `[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`,
+                  );
 
-                  // Update the error message to include the purchase error details
-                  const purchaseErrorMsg =
-                    purchaseError instanceof Error ? purchaseError.message : String(purchaseError);
-                  finalErrorMessage = `License purchase failed for free app "${appName || bundleId}": ${purchaseErrorMsg}`;
+                  try {
+                    const purchaseSuccess = await purchaseApp(bundleId, appName, options);
+
+                    if (purchaseSuccess) {
+                      logger.log(
+                        `[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`,
+                      );
+                      if (!suppressHUD) {
+                        await showHUD(`License obtained. Retrying download...`);
+                      }
+
+                      // Retry the download after successful license purchase
+                      return downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, options);
+                    } else {
+                      logger.log(
+                        `[ipatool] License purchase failed for ${appName || bundleId}. Proceeding with error handling.`,
+                      );
+                      if (!suppressHUD) {
+                        await showHUD(`Failed to obtain license for ${appName || bundleId}`);
+                      }
+
+                      // Update the error message to be more specific about license purchase failure
+                      finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to authentication issues or App Store restrictions.`;
+                    }
+                  } catch (purchaseError) {
+                    logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
+                    if (!suppressHUD) {
+                      await showHUD(`License purchase error for ${appName || bundleId}`);
+                    }
+
+                    // Update the error message to include the purchase error details
+                    const purchaseErrorMsg =
+                      purchaseError instanceof Error ? purchaseError.message : String(purchaseError);
+                    finalErrorMessage = `License purchase failed for free app "${appName || bundleId}": ${purchaseErrorMsg}`;
+                  }
                 }
               }
 
@@ -1087,7 +1109,7 @@ export async function downloadApp(
                     }
                   }
                 }
-              } catch (parseError) {
+              } catch {
                 logger.log(`[ipatool] No valid JSON metadata found for integrity verification`);
               }
 

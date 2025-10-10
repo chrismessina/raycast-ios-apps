@@ -43,7 +43,7 @@ export function CopyActions({ app }: CopyActionsProps) {
         />
       )}
       <Action
-        title="Copy Bundle Id"
+        title="Copy Bundle ID"
         icon={Icon.Clipboard}
         shortcut={{ modifiers: ["cmd"], key: "b" }}
         onAction={() => copyToClipboard(app.bundleId, "Bundle Id")}
