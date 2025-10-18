@@ -1,7 +1,7 @@
 import { searchApps } from "../ipatool";
 import { enrichAppDetails } from "../utils/itunes-api";
 import { AppDetails } from "../types";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
 import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
 import { truncateAtWordBoundary } from "../utils/common";

@@ -6,6 +6,19 @@
 - [X] Gracefully handle attempts to download apps that haven't been purchased
 - [X] Create forms to handle ipatool authentication
 - [X] Create form to handle Apple 2FA code for ipatool
-- [ ] Add "Recent searches" to App Search
-- [ ] Add "Download History"
-- [ ] Add app ability to save favorite apps
+- [ ] Add "Recent searches" to App Search that appear automatically when rendering the Search view
+- [ ] Add "Download History" view that automatically shows the last 50 downloads
+  - [ ] Add ability to remove history item (using control-x shortcut)
+  - [ ] Add ability to clear all history
+  - [ ] Add ability to add app from history to favorites
+  - [ ] Add ability to sort history by date, name, developer, or app ID
+  - [ ] Add ability to filter history by app name or developer
+  - [ ] Record how many times each app is downloaded in local storage using Raycast storage API
+- [ ] Add "Favorites" view
+  - [ ] Add ability to save app to favorites
+  - [ ] Add ability to remove app from favorites
+  - [ ] Add ability to clear all favorites
+  - [ ] Add ability to export favorites list to markdown
+  - [ ] Add ability to export favorites list to CSV  
+- [ ] Refactor simultaneous download handling (ensure that it works correctly given Raycast limitations)
+- [ ] Improve app renaming algorithm to remove extraneous information

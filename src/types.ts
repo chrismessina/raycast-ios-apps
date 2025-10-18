@@ -1,5 +1,6 @@
 // src/types.ts - Type definitions for the extension
 import path from "path";
+import { LoggerPreferences } from "@chrismessina/raycast-logger";
 
 // =============================================================================
 // CORE APP DATA TYPES
@@ -193,11 +194,10 @@ export const PlatformDirectories = (screenshotsDir: string): Record<PlatformType
 /**
  * Raycast extension preferences
  */
-export interface ExtensionPreferences {
+export interface ExtensionPreferences extends LoggerPreferences {
   appleId: string;
   password: string;
   downloadPath?: string;
   homebrewPath?: string;
   ipatoolPath?: string;
-  verboseLogging?: boolean;
 }

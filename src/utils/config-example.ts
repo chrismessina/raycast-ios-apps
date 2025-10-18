@@ -4,7 +4,7 @@
  */
 
 import { getConfig, getConfigValue, logCurrentConfig, IntegrityVerification } from "../config";
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 /**
  * Example: Using config in a download function

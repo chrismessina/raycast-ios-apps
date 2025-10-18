@@ -3,7 +3,7 @@ import { spawnSync, spawn, ChildProcess } from "child_process";
 import { showToast, Toast, open } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { IPATOOL_PATH, validateExecutablePath } from "./paths";
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 // Constants
 const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";

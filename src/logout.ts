@@ -2,7 +2,7 @@ import { showHUD, showToast, Toast } from "@raycast/api";
 import { revoke, getAuthInfo } from "./utils/ipatool-auth";
 import { validateIpatoolInstallation } from "./utils/ipatool-validator";
 import { clearStoredCredentials } from "./utils/auth";
-import { logger } from "./utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 export default async function Command() {
   try {

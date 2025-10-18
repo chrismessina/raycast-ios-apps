@@ -1,5 +1,5 @@
 import { getPreferenceValues } from "@raycast/api";
-import { logger } from "./utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 // Integrity verification options
 export type IntegrityVerification = "basic" | "checksum" | "off";

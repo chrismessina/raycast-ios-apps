@@ -4,7 +4,7 @@
  */
 
 import { showToast, Toast } from "@raycast/api";
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 export interface ProgressOptions {
   title: string;

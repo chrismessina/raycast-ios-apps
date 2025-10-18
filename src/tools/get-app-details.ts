@@ -1,5 +1,5 @@
 import { getAppDetails, searchApps } from "../ipatool";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { formatPrice, formatDate } from "../utils/formatting";
 import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
 import { getAppStoreUrl } from "../utils/constants";

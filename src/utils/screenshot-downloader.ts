@@ -7,7 +7,7 @@ import { showFailureToast } from "@raycast/utils";
 import { showToast, Toast, showHUD, getPreferenceValues } from "@raycast/api";
 import { AppDetails, PlatformDirectories, PlatformType, ScreenshotInfo } from "../types";
 import { getDownloadsDirectory, validateSafePath, sanitizeFilename } from "./paths";
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { getConfigValue } from "../config";
 
 // Promisify fs functions

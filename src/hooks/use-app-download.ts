@@ -5,7 +5,7 @@ import { handleDownloadError, handleAuthError } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 import { AuthNavigationHelpers } from "./useAuthNavigation";
 import { NeedsLoginError, Needs2FAError, ensureAuthenticated } from "../utils/auth";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 
 // Global download state to prevent concurrent downloads across all hook instances
 const globalDownloadState = {

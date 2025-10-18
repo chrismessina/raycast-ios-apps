@@ -1,5 +1,5 @@
 import { searchITunesApps } from "../utils/itunes-api";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { Tool } from "@raycast/api";
 import type { ITunesResult } from "../types";
 import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";

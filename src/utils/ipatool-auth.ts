@@ -1,5 +1,5 @@
 import { ChildProcess } from "child_process";
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { createSecureIpatoolProcess, executeIpatoolCommand } from "./ipatool-validator";
 

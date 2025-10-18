@@ -1,6 +1,6 @@
 import { downloadApp, searchApps } from "../ipatool";
 import path from "path";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { Tool, showToast, Toast } from "@raycast/api";
 import { handleAppSearchError, handleDownloadError, handleAuthError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";

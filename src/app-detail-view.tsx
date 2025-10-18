@@ -6,7 +6,7 @@ import { formatPrice, formatDate } from "./utils/formatting";
 import { renderStarRating } from "./utils/common";
 import { AppActionPanel } from "./components/app-action-panel";
 import { useAppDetails, useAppDownload } from "./hooks";
-import { logger } from "./utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { getAppStoreUrl } from "./utils/constants";
 import { useAuthNavigation } from "./hooks/useAuthNavigation";
 

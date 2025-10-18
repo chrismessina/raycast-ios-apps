@@ -5,7 +5,7 @@ import { downloadAppScreenshots } from "../utils/screenshot-downloader";
 import { getDownloadsDirectory } from "../utils/paths";
 import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";
 import { searchITunesApps, convertITunesResultToAppDetails } from "../utils/itunes-api";
-import { logger } from "../utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import type { PlatformType, ITunesResult } from "../types";
 
 type Input = {

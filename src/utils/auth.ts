@@ -1,6 +1,6 @@
 import * as Raycast from "@raycast/api";
 const { LocalStorage } = Raycast;
-import { logger } from "./logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { validateIpatoolInstallation, executeIpatoolCommand } from "./ipatool-validator";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { handleProcessErrorCleanup } from "./temp-file-manager";

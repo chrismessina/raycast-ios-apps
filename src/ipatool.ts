@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
-import { logger } from "./utils/logger";
+import { logger } from "@chrismessina/raycast-logger";
 import { promisify } from "util";
 import { showHUD, showToast, Toast, confirmAlert, Alert } from "@raycast/api";
 import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
