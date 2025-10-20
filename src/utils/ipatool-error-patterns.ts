@@ -38,7 +38,7 @@ export interface IpatoolErrorInfo {
     | "permission_denied"
     | "corruption"
     | "rate_limited"
-    | "maintenance"
+    | "maintenance" // Includes Apple error 5002 and other temporary server issues
     | "regional_restriction"
     | "account_restriction"
     | "generic";
@@ -244,6 +244,27 @@ export function analyzeIpatoolError(
       userMessage: "Download corrupted. The file was damaged during download.",
       suggestedAction: "Retry",
       errorType: "corruption",
+    };
+  }
+
+  // Apple Store Error 5002 - "An unknown error has occurred"
+  // This is a generic catch-all error from Apple that can indicate:
+  // - Temporary server issues (most common)
+  // - Authentication/session problems
+  // - Regional restrictions
+  // - Account issues
+  if (
+    fullMessage.includes("failuretype") && fullMessage.includes("5002") ||
+    (fullMessage.includes("unknown error has occurred") && fullMessage.includes("received error"))
+  ) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "Apple returned a temporary error (5002). This often resolves itself. Please wait a few minutes and try again.",
+      suggestedAction: "Retry",
+      errorType: "maintenance",
     };
   }
 
