@@ -254,7 +254,7 @@ export function analyzeIpatoolError(
   // - Regional restrictions
   // - Account issues
   if (
-    fullMessage.includes("failuretype") && fullMessage.includes("5002") ||
+    (fullMessage.includes("failuretype") && fullMessage.includes("5002")) ||
     (fullMessage.includes("unknown error has occurred") && fullMessage.includes("received error"))
   ) {
     return {
@@ -262,7 +262,8 @@ export function analyzeIpatoolError(
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Apple returned a temporary error (5002). This often resolves itself. Please wait a few minutes and try again.",
+      userMessage:
+        "Apple returned a temporary error (5002). This often resolves itself. Please wait a few minutes and try again.",
       suggestedAction: "Retry",
       errorType: "maintenance",
     };

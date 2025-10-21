@@ -4,7 +4,7 @@ import path from "path";
 import { promisify } from "util";
 import pLimit from "p-limit";
 import { showFailureToast } from "@raycast/utils";
-import { showToast, Toast, showHUD, getPreferenceValues } from "@raycast/api";
+import { showToast, Toast, showHUD, getPreferenceValues, Clipboard, showInFinder } from "@raycast/api";
 import { AppDetails, PlatformDirectories, PlatformType, ScreenshotInfo } from "../types";
 import { getDownloadsDirectory, validateSafePath, sanitizeFilename } from "./paths";
 import { logger } from "@chrismessina/raycast-logger";
@@ -724,6 +724,21 @@ export async function downloadAppScreenshots(
       toast.style = Toast.Style.Success;
       toast.title = "Screenshots downloaded";
       toast.message = `All ${successCount} screenshots saved | ${platformSuccessSummary}`;
+      toast.primaryAction = {
+        title: "Open in Finder",
+        shortcut: { modifiers: ["cmd"], key: "o" },
+        onAction: async () => {
+          await showInFinder(screenshotsDir);
+        },
+      };
+      toast.secondaryAction = {
+        title: "Copy to Clipboard",
+        shortcut: { modifiers: ["cmd"], key: "c" },
+        onAction: async (toast) => {
+          await Clipboard.copy(screenshotsDir);
+          toast.message = "Path copied to clipboard";
+        },
+      };
 
       await showHUD(
         `✓ Downloaded all ${successCount} screenshots across ${Object.keys(platformResults).filter((p) => platformResults[p].total > 0).length} platforms`,
@@ -732,6 +747,21 @@ export async function downloadAppScreenshots(
       toast.style = Toast.Style.Success;
       toast.title = "Screenshots partially downloaded";
       toast.message = `${successCount}/${totalScreenshots} saved | ${platformSuccessSummary}`;
+      toast.primaryAction = {
+        title: "Open in Finder",
+        shortcut: { modifiers: ["cmd"], key: "o" },
+        onAction: async () => {
+          await showInFinder(screenshotsDir);
+        },
+      };
+      toast.secondaryAction = {
+        title: "Copy to Clipboard",
+        shortcut: { modifiers: ["cmd"], key: "c" },
+        onAction: async (toast) => {
+          await Clipboard.copy(screenshotsDir);
+          toast.message = "Path copied to clipboard";
+        },
+      };
 
       // Group failures by platform for detailed reporting
       const failuresByPlatform: Record<string, number> = {};

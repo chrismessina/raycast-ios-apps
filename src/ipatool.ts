@@ -889,8 +889,10 @@ export async function downloadApp(
                   await showHUD(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
                 }
 
-                await new Promise((resolve) => setTimeout(resolve, retryDelay));
-                return downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options);
+                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
+                // Resolve with the retry result to properly propagate the Promise chain
+                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                return;
               }
 
               // Use precise ipatool error analysis for categorization
@@ -906,10 +908,11 @@ export async function downloadApp(
                   `[ipatool] Timeout/stall error detected. Retrying in ${retryDelay}ms (attempt ${nextRetryCount}/${MAX_RETRIES})`,
                 );
                 if (!suppressHUD) {
-                  await showHUD(`Download stalled – retry? Retrying in ${Math.round(retryDelay / 1000)}s...`);
+                  await showHUD(`Download stalled. Retrying in ${Math.round(retryDelay / 1000)}s...`);
                 }
-                await new Promise((resolve) => setTimeout(resolve, retryDelay));
-                return downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options);
+                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
+                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                return;
               }
 
               // Retry for rate limiting or maintenance downtime with extended backoff
@@ -934,8 +937,9 @@ export async function downloadApp(
                   );
                 }
 
-                await new Promise((resolve) => setTimeout(resolve, baseDelay));
-                return downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options);
+                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, baseDelay));
+                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                return;
               }
 
               // Use the error analysis we already performed above
@@ -985,7 +989,8 @@ export async function downloadApp(
                       }
 
                       // Retry the download after successful license purchase
-                      return downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, options);
+                      resolve(await downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, options));
+                      return;
                     } else {
                       logger.log(
                         `[ipatool] License purchase failed for ${appName || bundleId}. Proceeding with error handling.`,
@@ -1141,10 +1146,11 @@ export async function downloadApp(
                   }
 
                   // Wait a short delay before retry
-                  await new Promise((resolve) => setTimeout(resolve, 2000));
+                  await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 2000));
 
                   // Retry with retryCount = 1 to prevent infinite retry loop
-                  return downloadApp(bundleId, appName, appVersion, price, 1, INITIAL_RETRY_DELAY, options);
+                  resolve(await downloadApp(bundleId, appName, appVersion, price, 1, INITIAL_RETRY_DELAY, options));
+                  return;
                 }
 
                 reject(new Error(`File integrity verification failed: ${integrityResult.errorMessage}`));

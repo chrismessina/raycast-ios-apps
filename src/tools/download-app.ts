@@ -1,7 +1,7 @@
 import { downloadApp, searchApps } from "../ipatool";
 import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
-import { Tool, showToast, Toast } from "@raycast/api";
+import { Tool, showToast, Toast, Clipboard, showInFinder } from "@raycast/api";
 import { handleAppSearchError, handleDownloadError, handleAuthError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 
@@ -108,7 +108,26 @@ export default async function downloadIosApp(input: Input) {
       }
 
       logger.log(`[download-app tool] Successfully downloaded app to: ${filePath}`);
-      await showToast(Toast.Style.Success, "Download Complete", `${appName} saved to ${filePath}`);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Download Complete",
+        message: `${appName} saved to ${filePath}`,
+        primaryAction: {
+          title: "Open in Finder",
+          shortcut: { modifiers: ["cmd"], key: "o" },
+          onAction: async () => {
+            await showInFinder(filePath);
+          },
+        },
+        secondaryAction: {
+          title: "Copy to Clipboard",
+          shortcut: { modifiers: ["cmd"], key: "c" },
+          onAction: async (toast) => {
+            await Clipboard.copy(filePath);
+            toast.message = "Path copied to clipboard";
+          },
+        },
+      });
 
       return {
         filePath,

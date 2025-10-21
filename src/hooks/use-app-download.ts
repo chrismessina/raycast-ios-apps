@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { showToast, Toast, showHUD } from "@raycast/api";
+import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api";
 import { downloadApp } from "../ipatool";
 import { handleDownloadError, handleAuthError } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
@@ -190,7 +190,26 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           }
 
           logger.log(`[useAppDownload] File exists. Success toast for ${name} at ${filePath}`);
-          showToast(Toast.Style.Success, "Download Complete", `${name} saved to ${filePath}`);
+          await showToast({
+            style: Toast.Style.Success,
+            title: "Download Complete",
+            message: `${name} saved to ${filePath}`,
+            primaryAction: {
+              title: "Open in Finder",
+              shortcut: { modifiers: ["cmd"], key: "o" },
+              onAction: async () => {
+                await showInFinder(filePath);
+              },
+            },
+            secondaryAction: {
+              title: "Copy to Clipboard",
+              shortcut: { modifiers: ["cmd"], key: "c" },
+              onAction: async (toast) => {
+                await Clipboard.copy(filePath);
+                toast.message = "Path copied to clipboard";
+              },
+            },
+          });
 
           return filePath;
         } else {
