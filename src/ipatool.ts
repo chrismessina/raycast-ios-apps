@@ -669,7 +669,7 @@ export async function downloadApp(
   price = "0",
   retryCount = 0,
   retryDelay = INITIAL_RETRY_DELAY,
-  options?: { suppressHUD?: boolean },
+  options?: { suppressHUD?: boolean; onProgress?: (progress: number) => void },
 ): Promise<string | null | undefined> {
   try {
     logger.log(`[ipatool] Starting download for bundleId: ${bundleId}, app: ${appName}, version: ${appVersion}`);
@@ -799,6 +799,12 @@ export async function downloadApp(
                 if (progress > lastProgress) {
                   lastProgress = progress;
                   resetStallTimer(); // Reset stall timer on progress
+                  
+                  // Call progress callback if provided
+                  if (options?.onProgress) {
+                    options.onProgress(progress);
+                  }
+                  
                   if (!suppressHUD) {
                     showHUD(`Downloading ${appName || bundleId}... ${Math.round(progress * 100)}%`);
                   }

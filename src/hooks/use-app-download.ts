@@ -73,6 +73,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     setCurrentDownload(name);
 
     let releaseLock = true;
+    let progressToast: Toast | undefined;
 
     try {
       // Pre-authenticate first so we can push forms without closing the window
@@ -164,12 +165,17 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         throw error;
       }
 
+      // Create a toast for progress tracking (similar to video downloader)
       if (showHudMessages) {
         if (authNavigation) {
           logger.log(
             `[useAppDownload] Showing Toast (animated): "Downloading ${name}..." (avoid HUD to keep view open)`,
           );
-          await showToast({ style: Toast.Style.Animated, title: `Downloading ${name}...` });
+          progressToast = await showToast({ 
+            style: Toast.Style.Animated, 
+            title: `Downloading ${name}...`,
+            message: "0%"
+          });
         } else {
           logger.log(`[useAppDownload] Showing HUD: "Downloading ${name}..."`);
           await showHUD(`Downloading ${name}...`);
@@ -178,6 +184,13 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       const filePath = await downloadApp(bundleId, name, version, price, 0, undefined, {
         suppressHUD: Boolean(authNavigation),
+        onProgress: progressToast ? (progress: number) => {
+          const percentage = Math.floor(progress * 100);
+          if (progressToast) {
+            progressToast.message = `${percentage}%`;
+          }
+          logger.log(`[useAppDownload] Download progress: ${percentage}%`);
+        } : undefined,
       });
 
       if (filePath) {
@@ -190,31 +203,58 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           }
 
           logger.log(`[useAppDownload] File exists. Success toast for ${name} at ${filePath}`);
-          await showToast({
-            style: Toast.Style.Success,
-            title: "Download Complete",
-            message: `${name} saved to ${filePath}`,
-            primaryAction: {
+          
+          // Update the progress toast if it exists, otherwise create a new success toast
+          if (progressToast) {
+            progressToast.style = Toast.Style.Success;
+            progressToast.title = "Download Complete";
+            progressToast.message = name;
+            progressToast.primaryAction = {
               title: "Open in Finder",
               shortcut: { modifiers: ["cmd"], key: "o" },
               onAction: async () => {
                 await showInFinder(filePath);
               },
-            },
-            secondaryAction: {
+            };
+            progressToast.secondaryAction = {
               title: "Copy to Clipboard",
               shortcut: { modifiers: ["cmd"], key: "c" },
               onAction: async (toast) => {
                 await Clipboard.copy(filePath);
                 toast.message = "Path copied to clipboard";
               },
-            },
-          });
+            };
+          } else {
+            await showToast({
+              style: Toast.Style.Success,
+              title: "Download Complete",
+              message: `${name} saved to ${filePath}`,
+              primaryAction: {
+                title: "Open in Finder",
+                shortcut: { modifiers: ["cmd"], key: "o" },
+                onAction: async () => {
+                  await showInFinder(filePath);
+                },
+              },
+              secondaryAction: {
+                title: "Copy to Clipboard",
+                shortcut: { modifiers: ["cmd"], key: "c" },
+                onAction: async (toast) => {
+                  await Clipboard.copy(filePath);
+                  toast.message = "Path copied to clipboard";
+                },
+              },
+            });
+          }
 
           return filePath;
         } else {
           // File path returned but file doesn't exist
-          if (showHudMessages && !authNavigation) {
+          if (progressToast) {
+            progressToast.style = Toast.Style.Failure;
+            progressToast.title = "Download Failed";
+            progressToast.message = "File not found at expected path";
+          } else if (showHudMessages && !authNavigation) {
             logger.log(`[useAppDownload] Showing HUD: "Download Failed" (file missing) for ${name}`);
             await showHUD("Download Failed");
           }
@@ -231,9 +271,19 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         logger.log(
           `[useAppDownload] Download cancelled by user for ${name} (${bundleId}). Suppressing failure HUD/toast.`,
         );
+        // Update progress toast if it exists
+        if (progressToast) {
+          progressToast.style = Toast.Style.Animated;
+          progressToast.title = "Download Cancelled";
+          progressToast.message = "File already exists";
+        }
         return null;
       } else {
-        if (showHudMessages && !authNavigation) {
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Download Failed";
+          progressToast.message = "Could not determine file path";
+        } else if (showHudMessages && !authNavigation) {
           logger.log(`[useAppDownload] Showing HUD: "Download Failed" (no file path) for ${name}`);
           await showHUD("Download Failed");
         }
@@ -342,7 +392,13 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                     : errorAnalysis.errorType === "account_restriction"
                       ? "Account Restricted"
                       : "Download Failed";
-        if (authNavigation) {
+        
+        // Update progress toast if it exists
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = hudMessage;
+          progressToast.message = errorAnalysis.userMessage;
+        } else if (authNavigation) {
           // Avoid HUD to keep the view open; dedicated error handlers will show toasts
           logger.log(`[useAppDownload] Skipping HUD (view context). Would show: "${hudMessage}" for ${name}`);
         } else {
