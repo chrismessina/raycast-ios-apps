@@ -113,7 +113,7 @@ export default async function downloadIosApp(input: Input) {
         title: "Download Complete",
         message: `${appName} saved to ${filePath}`,
         primaryAction: {
-          title: "Open in Finder",
+          title: "Show in Finder",
           shortcut: { modifiers: ["cmd"], key: "o" },
           onAction: async () => {
             await showInFinder(filePath);

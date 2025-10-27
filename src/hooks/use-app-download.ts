@@ -212,7 +212,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             progressToast.title = "Download Complete";
             progressToast.message = name;
             progressToast.primaryAction = {
-              title: "Open in Finder",
+              title: "Show in Finder",
               shortcut: { modifiers: ["cmd"], key: "o" },
               onAction: async () => {
                 await showInFinder(filePath);
@@ -232,7 +232,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
               title: "Download Complete",
               message: `${name} saved to ${filePath}`,
               primaryAction: {
-                title: "Open in Finder",
+                title: "Show in Finder",
                 shortcut: { modifiers: ["cmd"], key: "o" },
                 onAction: async () => {
                   await showInFinder(filePath);

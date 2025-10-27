@@ -725,7 +725,7 @@ export async function downloadAppScreenshots(
       toast.title = "Screenshots downloaded";
       toast.message = `All ${successCount} screenshots saved | ${platformSuccessSummary}`;
       toast.primaryAction = {
-        title: "Open in Finder",
+        title: "Show in Finder",
         shortcut: { modifiers: ["cmd"], key: "o" },
         onAction: async () => {
           await showInFinder(screenshotsDir);
@@ -748,7 +748,7 @@ export async function downloadAppScreenshots(
       toast.title = "Screenshots partially downloaded";
       toast.message = `${successCount}/${totalScreenshots} saved | ${platformSuccessSummary}`;
       toast.primaryAction = {
-        title: "Open in Finder",
+        title: "Show in Finder",
         shortcut: { modifiers: ["cmd"], key: "o" },
         onAction: async () => {
           await showInFinder(screenshotsDir);
