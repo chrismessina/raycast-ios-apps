@@ -40,6 +40,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     price: string,
     showHudMessages = true,
     opId?: string,
+    expectedSizeBytes?: number,
   ): Promise<string | null | undefined> => {
     // Generate or reuse an operation ID for this logical download flow
     const operationId = opId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -191,6 +192,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           }
           logger.log(`[useAppDownload] Download progress: ${percentage}%`);
         } : undefined,
+        expectedSizeBytes,
       });
 
       if (filePath) {

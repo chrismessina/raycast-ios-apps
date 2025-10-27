@@ -1,5 +1,5 @@
 import { AppDetails, IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { convertITunesResultToAppDetails, fetchITunesAppDetails } from "./utils/itunes-api";
+import { convertITunesResultToAppDetails, convertIpaToolSearchAppToAppDetails, fetchITunesAppDetails } from "./utils/itunes-api";
 import { ensureAuthenticated } from "./utils/auth";
 import { execFile, spawn } from "child_process";
 import { extractFilePath, safeJsonParse } from "./utils/common";
@@ -669,7 +669,7 @@ export async function downloadApp(
   price = "0",
   retryCount = 0,
   retryDelay = INITIAL_RETRY_DELAY,
-  options?: { suppressHUD?: boolean; onProgress?: (progress: number) => void },
+  options?: { suppressHUD?: boolean; onProgress?: (progress: number) => void; expectedSizeBytes?: number },
 ): Promise<string | null | undefined> {
   try {
     logger.log(`[ipatool] Starting download for bundleId: ${bundleId}, app: ${appName}, version: ${appVersion}`);
@@ -678,18 +678,25 @@ export async function downloadApp(
     if (retryCount === 0) {
       logger.log(`[ipatool] Validating download prerequisites...`);
 
-      // Try to get expected app size from iTunes API for better disk space validation
-      let expectedSizeBytes: number | undefined;
-      try {
-        const itunesDetails = await fetchITunesAppDetails(bundleId);
-        if (itunesDetails?.fileSizeBytes) {
-          expectedSizeBytes = itunesDetails.fileSizeBytes;
-          logger.log(
-            `[validation] Got expected app size from iTunes API: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
-          );
+      // Use provided expectedSizeBytes or fetch from iTunes API as fallback
+      let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
+      
+      if (!expectedSizeBytes) {
+        try {
+          const itunesDetails = await fetchITunesAppDetails(bundleId);
+          if (itunesDetails?.fileSizeBytes) {
+            expectedSizeBytes = itunesDetails.fileSizeBytes;
+            logger.log(
+              `[validation] Got expected app size from iTunes API: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
+            );
+          }
+        } catch (error) {
+          logger.warn(`[validation] Could not fetch app size from iTunes API, using fallback:`, error);
         }
-      } catch (error) {
-        logger.warn(`[validation] Could not fetch app size from iTunes API, using fallback:`, error);
+      } else {
+        logger.log(
+          `[validation] Using provided expected app size: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
+        );
       }
 
       const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes, appVersion);
@@ -714,6 +721,28 @@ export async function downloadApp(
 
     // Get the downloads directory from preferences
     const downloadsDir = getDownloadsDirectory();
+
+    // Get expected file size for progress tracking
+    // Use provided size or fetch from iTunes API as fallback (only on initial attempt to avoid duplicate calls)
+    let expectedSizeBytes: number | undefined = retryCount === 0 ? options?.expectedSizeBytes : undefined;
+    
+    if (!expectedSizeBytes && retryCount === 0) {
+      try {
+        const itunesDetails = await fetchITunesAppDetails(bundleId);
+        if (itunesDetails?.fileSizeBytes) {
+          expectedSizeBytes = itunesDetails.fileSizeBytes;
+          logger.log(
+            `[ipatool] Got expected app size from iTunes API: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
+          );
+        }
+      } catch (error) {
+        logger.warn(`[ipatool] Could not fetch app size from iTunes API for progress tracking:`, error);
+      }
+    } else if (expectedSizeBytes) {
+      logger.log(
+        `[ipatool] Using provided expected app size for progress tracking: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
+      );
+    }
 
     // Show initial HUD with retry information if applicable
     const retryInfo = retryCount > 0 ? ` (Attempt ${retryCount + 1}/${MAX_RETRIES + 1})` : "";
@@ -767,6 +796,7 @@ export async function downloadApp(
           let stderr = "";
           let lastProgress = 0;
           let stallTimer: NodeJS.Timeout;
+          let lastReportedSize = 0;
 
           const resetStallTimer = () => {
             if (stallTimer) clearTimeout(stallTimer);
@@ -777,6 +807,49 @@ export async function downloadApp(
               reject(new Error("Download stalled."));
             }, maxStallTimeout);
           };
+
+          // Progress tracking via file size monitoring
+          const progressCheckInterval = setInterval(() => {
+            if (!expectedSizeBytes || expectedSizeBytes === 0) {
+              return; // Can't calculate progress without expected size
+            }
+
+            try {
+              // Check the size of the partial file being downloaded
+              const partialFilePath = path.join(downloadsDir, `${bundleId}.ipa.partial`);
+              if (fs.existsSync(partialFilePath)) {
+                const stats = fs.statSync(partialFilePath);
+                const currentSize = stats.size;
+                
+                // Only report progress if file size has changed significantly
+                if (currentSize > lastReportedSize + 1024 * 1024 || currentSize === expectedSizeBytes) {
+                  const progress = Math.min(currentSize / expectedSizeBytes, 1.0);
+                  
+                  if (progress > lastProgress) {
+                    lastProgress = progress;
+                    resetStallTimer(); // Reset stall timer on progress
+                    
+                    // Call progress callback if provided
+                    if (options?.onProgress) {
+                      options.onProgress(progress);
+                    }
+                    
+                    if (!suppressHUD) {
+                      const progressPercent = Math.round(progress * 100);
+                      showHUD(`Downloading ${appName || bundleId}... ${progressPercent}%`);
+                    }
+                    
+                    lastReportedSize = currentSize;
+                    logger.log(
+                      `[ipatool] Download progress: ${Math.ceil(currentSize / BYTES_PER_MB)}/${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB (${Math.round(progress * 100)}%)`,
+                    );
+                  }
+                }
+              }
+            } catch (error) {
+              logger.warn(`[ipatool] Error checking download progress:`, error);
+            }
+          }, 500); // Check every 500ms
 
           resetStallTimer(); // Initialize stall timer
 
@@ -791,31 +864,13 @@ export async function downloadApp(
               if (chunk.includes("password") || chunk.includes("authentication") || chunk.includes("purchase")) {
                 logger.log(`[ipatool] Authentication/Purchase prompt detected: ${chunk.trim()}`);
               }
-
-              // Try to extract progress information
-              const progressMatch = chunk.match(/downloading\s+(\d+)%/);
-              if (progressMatch?.[1]) {
-                const progress = parseInt(progressMatch[1], 10) / 100;
-                if (progress > lastProgress) {
-                  lastProgress = progress;
-                  resetStallTimer(); // Reset stall timer on progress
-                  
-                  // Call progress callback if provided
-                  if (options?.onProgress) {
-                    options.onProgress(progress);
-                  }
-                  
-                  if (!suppressHUD) {
-                    showHUD(`Downloading ${appName || bundleId}... ${Math.round(progress * 100)}%`);
-                  }
-                }
-              }
             });
           }
 
-          // Clear stall timer on completion
+          // Clear stall timer and progress interval on completion
           const clearAllTimers = () => {
             if (stallTimer) clearTimeout(stallTimer);
+            if (progressCheckInterval) clearInterval(progressCheckInterval);
           };
 
           // Collect stderr data
@@ -1351,28 +1406,7 @@ export async function getAppDetails(bundleId: string) {
     );
 
     // Create a basic result with the data we have from ipatool search
-    let result: AppDetails = {
-      id: app.id.toString(),
-      name: app.name,
-      version: app.version,
-      bundleId: app.bundleId || app.bundleID || "", // Handle both bundleId and bundleID formats
-      artworkUrl60: "",
-      description: "",
-      iconUrl: "",
-      sellerName: app.developer,
-      price: app.price.toString(),
-      currency: "USD", // Default currency for ipatool results
-      genres: [],
-      size: "0",
-      contentRating: "",
-      artistName: "",
-      artworkUrl512: "",
-      averageUserRating: 0,
-      averageUserRatingForCurrentVersion: 0,
-      userRatingCount: 0,
-      userRatingCountForCurrentVersion: 0,
-      releaseDate: "",
-    };
+    let result = convertIpaToolSearchAppToAppDetails(app);
 
     // Try to fetch additional details from iTunes API for the app we found
     const appBundleId = app.bundleId || app.bundleID || "";

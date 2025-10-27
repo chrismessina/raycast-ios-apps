@@ -109,7 +109,7 @@ export default function Search() {
                 actions={
                   <AppActionPanel
                     app={app}
-                    onDownload={() => downloadApp(app.bundleId, app.name, app.version, app.price)}
+                    onDownload={() => downloadApp(app.bundleId, app.name, app.version, app.price, undefined, undefined, app.fileSizeBytes)}
                     showViewDetails={true}
                   />
                 }

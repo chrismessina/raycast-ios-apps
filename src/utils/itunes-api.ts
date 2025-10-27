@@ -1,6 +1,6 @@
 // iTunes API utility functions
 import { showFailureToast } from "@raycast/utils";
-import { AppDetails, ITunesResponse, ITunesResult } from "../types";
+import { AppDetails, ITunesResponse, ITunesResult, IpaToolSearchApp } from "../types";
 import { logger } from "@chrismessina/raycast-logger";
 import { ITUNES_API_BASE_URL, ITUNES_LOOKUP_ENDPOINT, ITUNES_SEARCH_ENDPOINT } from "./constants";
 
@@ -62,6 +62,7 @@ export function convertITunesResultToAppDetails(
     currency: itunesData.currency || base.currency || "USD",
     genres: itunesData.genres && itunesData.genres.length > 0 ? itunesData.genres : base.genres || [],
     size: itunesData.fileSizeBytes?.toString() || base.size || "0",
+    fileSizeBytes: itunesData.fileSizeBytes || (base.fileSizeBytes ?? 0),
     contentRating: itunesData.contentAdvisoryRating || base.contentRating || "",
     // Set the artwork URLs from iTunes API
     artworkUrl60: itunesData.artworkUrl60 || base.artworkUrl60 || "",
@@ -83,6 +84,38 @@ export function convertITunesResultToAppDetails(
     appletvScreenshotUrls: itunesData.appletvScreenshotUrls || base.appletvScreenshotUrls || [],
     // Store the raw iTunes API data for access to all fields
     itunesData: itunesData,
+  };
+}
+
+/**
+ * Convert ipatool search result to basic AppDetails format
+ * @param app ipatool search app result
+ * @returns Basic AppDetails object with default values
+ */
+export function convertIpaToolSearchAppToAppDetails(app: IpaToolSearchApp): AppDetails {
+  return {
+    id: app.id.toString(),
+    name: app.name,
+    version: app.version,
+    bundleId: app.bundleId || app.bundleID || "",
+    price: app.price.toString(),
+    currency: "USD",
+    artistName: app.developer,
+    sellerName: app.developer,
+    // Default empty values for fields not available from ipatool search
+    artworkUrl60: "",
+    artworkUrl512: "",
+    description: "",
+    iconUrl: "",
+    genres: [],
+    size: "0",
+    fileSizeBytes: 0,
+    contentRating: "",
+    averageUserRating: 0,
+    averageUserRatingForCurrentVersion: 0,
+    userRatingCount: 0,
+    userRatingCountForCurrentVersion: 0,
+    releaseDate: "",
   };
 }
 

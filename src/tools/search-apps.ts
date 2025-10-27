@@ -63,6 +63,7 @@ export default async function searchIosApps(input: Input) {
         sellerName: "",
         genres: [],
         size: "0",
+        fileSizeBytes: 0,
         contentRating: "",
         // Additional required fields from AppDetails
         artworkUrl512: "",

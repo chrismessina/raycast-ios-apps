@@ -843,6 +843,7 @@ export async function downloadScreenshots(bundleId: string, appName = "", appVer
       sellerName: "",
       genres: [],
       size: "",
+      fileSizeBytes: 0,
       contentRating: "",
       artworkUrl512: "",
       averageUserRating: 0,

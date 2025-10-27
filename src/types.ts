@@ -22,7 +22,8 @@ export interface AppDetails {
   price: string;
   currency: string;
   genres: string[];
-  size: string;
+  size: string; // Formatted size string for display (e.g., "150 MB")
+  fileSizeBytes: number; // Raw file size in bytes for calculations and progress tracking
   contentRating: string;
   // iTunes API additional fields
   artworkUrl512: string;

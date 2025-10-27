@@ -152,7 +152,7 @@ ${app.screenshotUrls.map((url, index) => `![Screenshot ${index + 1}](${url}?rayc
               showFailureToast(new Error("Bundle ID is missing"), { title: "Cannot download app" });
               return Promise.resolve(null);
             }
-            return downloadApp(app.bundleId, app.name, app.version, app.price, true);
+            return downloadApp(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes);
           }}
           showViewDetails={false}
         />
