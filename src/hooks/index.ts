@@ -3,3 +3,6 @@ export * from "./use-app-download";
 export * from "./use-app-details";
 export * from "./use-clipboard";
 export * from "./use-export-favorites";
+export * from "./use-recent-searches";
+export * from "./use-favorite-apps";
+export * from "./use-download-history";

@@ -3,10 +3,10 @@ import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api
 import { downloadApp } from "../ipatool";
 import { handleDownloadError, handleAuthError } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
-import { AuthNavigationHelpers } from "./useAuthNavigation";
+import { AuthNavigationHelpers } from "./use-auth-navigation";
 import { NeedsLoginError, Needs2FAError, ensureAuthenticated } from "../utils/auth";
 import { logger } from "@chrismessina/raycast-logger";
-import { addToDownloadHistory } from "../utils/storage";
+import { useDownloadHistory } from "./use-download-history";
 import type { AppDetails } from "../types";
 
 // Global download state to prevent concurrent downloads across all hook instances
@@ -25,6 +25,7 @@ const globalDownloadState = {
 export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
   const [isLoading, setIsLoading] = useState(globalDownloadState.isDownloading || globalDownloadState.isAuthenticating);
   const [currentDownload, setCurrentDownload] = useState<string | null>(globalDownloadState.currentApp);
+  const { addToHistory } = useDownloadHistory();
 
   /**
    * Download an app using ipatool
@@ -208,7 +209,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           // Add to download history if app details are available
           if (appDetails) {
             try {
-              await addToDownloadHistory(appDetails, filePath);
+              await addToHistory(appDetails, filePath);
             } catch (error) {
               console.error("Error adding to download history:", error);
             }

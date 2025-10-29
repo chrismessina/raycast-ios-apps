@@ -4,25 +4,42 @@ import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
 import { getAppStoreUrl } from "../utils/constants";
 import { useAppDownload } from "../hooks/use-app-download";
-import { useAuthNavigation } from "../hooks/useAuthNavigation";
-import { StarActions } from "./star-actions";
+import { useAuthNavigation } from "../hooks/use-auth-navigation";
+import { useFavoriteApps } from "../hooks/use-favorite-apps";
+import { FavoriteActions } from "./favorite-actions";
 
 interface AppActionsProps {
   app: AppDetails;
   onDownload?: (app: AppDetails) => Promise<string | null | undefined>;
   onDownloadScreenshots?: (app: AppDetails) => Promise<string | null | undefined>;
+  isFavorited?: boolean;
+  onAddFavorite?: (app: AppDetails) => Promise<void>;
+  onRemoveFavorite?: (bundleId: string) => Promise<void>;
 }
 
 /**
  * Reusable component for app-related actions
  */
-export function AppActions({ app, onDownload, onDownloadScreenshots }: AppActionsProps) {
+export function AppActions({
+  app,
+  onDownload,
+  onDownloadScreenshots,
+  isFavorited: isFavoritedProp,
+  onAddFavorite,
+  onRemoveFavorite,
+}: AppActionsProps) {
   // Create a fallback App Store URL if trackViewUrl is not available
   const appStoreUrl = app.trackViewUrl || (app.id ? getAppStoreUrl(app.id) : undefined);
 
   // Auth-aware download helpers
   const authNavigation = useAuthNavigation();
   const { downloadApp: downloadWithAuth } = useAppDownload(authNavigation);
+
+  // Favorite management - use props if provided, otherwise use hook
+  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
+  const isFavorited = isFavoritedProp !== undefined ? isFavoritedProp : isFavorite(app.bundleId);
+  const handleAddFavorite = onAddFavorite || addFavorite;
+  const handleRemoveFavorite = onRemoveFavorite || removeFavorite;
 
   // Default download handler if none provided
   const handleDownload = async () => {
@@ -63,7 +80,12 @@ export function AppActions({ app, onDownload, onDownloadScreenshots }: AppAction
         onAction={handleDownload}
         shortcut={{ modifiers: ["cmd"], key: "s" }}
       />
-      <StarActions app={app} />
+      <FavoriteActions
+        app={app}
+        isFavorited={isFavorited}
+        onAddFavorite={handleAddFavorite}
+        onRemoveFavorite={handleRemoveFavorite}
+      />
       <Action
         title="Download Screenshots"
         icon={Icon.Image}

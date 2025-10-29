@@ -83,9 +83,9 @@ export function truncateAtWordBoundary(text: string, maxLength: number): string 
 
   // If we found a space and it's not too close to the beginning, use it
   if (lastSpaceIndex > maxLength * 0.7) {
-    return truncated.substring(0, lastSpaceIndex) + "...";
+    return truncated.substring(0, lastSpaceIndex) + "…";
   }
 
   // Otherwise, just truncate at max length and add ellipsis
-  return truncated + "...";
+  return truncated + "…";
 }

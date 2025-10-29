@@ -40,19 +40,32 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
- * Format date to relative time string
+ * Format date to friendly relative time with time of day
+ * Examples: "Just now", "Today at 2:30 PM", "Yesterday at 11:45 AM", "Last week", "Last month"
  */
-export function formatRelativeTime(date: Date): string {
+export function formatFriendlyDateTime(dateString: string): string {
+  const date = new Date(dateString);
   const now = new Date();
   const diffInMs = now.getTime() - date.getTime();
+  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
   const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
 
-  if (diffInDays === 0) return "Today";
-  if (diffInDays === 1) return "Yesterday";
-  if (diffInDays < 7) return `${diffInDays} days ago`;
-  if (diffInDays < 30) return `${Math.floor(diffInDays / 7)} weeks ago`;
-  if (diffInDays < 365) return `${Math.floor(diffInDays / 30)} months ago`;
-  return `${Math.floor(diffInDays / 365)} years ago`;
+  const timeStr = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  if (diffInMinutes < 1) return "Just now";
+  if (diffInMinutes < 60) return diffInMinutes + " minute" + (diffInMinutes !== 1 ? "s" : "") + " ago";
+  if (diffInDays === 0) return "Today at " + timeStr;
+  if (diffInDays === 1) return "Yesterday at " + timeStr;
+  if (diffInDays < 7) return diffInDays + " days ago";
+  if (diffInDays < 14) return "Last week";
+  if (diffInDays < 30) return Math.floor(diffInDays / 7) + " weeks ago";
+  if (diffInDays < 60) return "Last month";
+  if (diffInDays < 365) return Math.floor(diffInDays / 30) + " months ago";
+  return Math.floor(diffInDays / 365) + " year" + (Math.floor(diffInDays / 365) !== 1 ? "s" : "") + " ago";
 }
 
 /**

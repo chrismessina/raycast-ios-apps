@@ -1,13 +1,9 @@
-import { Icon, List, ActionPanel, Action, showToast, Toast } from "@raycast/api";
-import { useState, useEffect, useCallback } from "react";
+import { Icon, List, ActionPanel, Action, Color } from "@raycast/api";
 import { formatPrice, formatDate } from "./utils/formatting";
 import { renderStarRating } from "./utils/common";
 import { AppActionPanel } from "./components/app-action-panel";
-import { useAppSearch, useAppDownload, useExportFavorites } from "./hooks";
-import { useAuthNavigation } from "./hooks/useAuthNavigation";
-import { getStarredApps, clearStarredApps, type StarredApp } from "./utils/storage";
-
-type FilterOption = "all" | "favorites";
+import { useAppSearch, useAppDownload, useFavoriteApps } from "./hooks";
+import { useAuthNavigation } from "./hooks/use-auth-navigation";
 
 export default function Search() {
   // Use the custom hooks - let useAppSearch manage the search text state
@@ -24,172 +20,12 @@ export default function Search() {
   } = useAppSearch("", 500);
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
-  const { exportToMarkdown, exportToCSV } = useExportFavorites();
-  const [filter, setFilter] = useState<FilterOption>("all");
-  const [starredApps, setStarredApps] = useState<StarredApp[]>([]);
-  const [isLoadingStarred, setIsLoadingStarred] = useState(false);
+  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
 
-  // Load starred apps when filter changes to favorites
-  useEffect(() => {
-    if (filter === "favorites") {
-      loadStarredApps();
-    }
-  }, [filter]);
-
-  const loadStarredApps = useCallback(async () => {
-    try {
-      setIsLoadingStarred(true);
-      const apps = await getStarredApps();
-      setStarredApps(apps);
-    } catch (error) {
-      console.error("Error loading starred apps:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to Load Favorites",
-        message: "Could not load favorite apps",
-      });
-    } finally {
-      setIsLoadingStarred(false);
-    }
-  }, []);
-
-  // Clear all favorites
-  const clearAllFavorites = useCallback(async () => {
-    try {
-      await clearStarredApps();
-      await loadStarredApps();
-      await showToast({
-        style: Toast.Style.Success,
-        title: "Favorites Cleared",
-        message: "All favorite apps have been removed",
-      });
-    } catch (error) {
-      console.error("Error clearing favorites:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to Clear",
-        message: "Could not clear favorite apps",
-      });
-    }
-  }, [loadStarredApps]);
-
-  // Show favorites when filter is set to favorites
-  if (filter === "favorites") {
-    // Filter starred apps by search text if provided
-    const filteredStarred = searchText
-      ? starredApps.filter(
-          (item) =>
-            item.app.name.toLowerCase().includes(searchText.toLowerCase()) ||
-            item.app.sellerName.toLowerCase().includes(searchText.toLowerCase()),
-        )
-      : starredApps;
-
-    return (
-      <List
-        isLoading={isLoadingStarred}
-        onSearchTextChange={setSearchText}
-        searchBarPlaceholder="Search favorite apps..."
-        searchBarAccessory={
-          <List.Dropdown tooltip="Filter" value={filter} onChange={(newValue) => setFilter(newValue as FilterOption)}>
-            <List.Dropdown.Item title="All Apps" value="all" />
-            <List.Dropdown.Item title="Favorites" value="favorites" />
-          </List.Dropdown>
-        }
-      >
-        {filteredStarred.length === 0 && !isLoadingStarred && (
-          <List.EmptyView
-            title={searchText ? "No Matching Favorites" : "No Favorite Apps"}
-            description={
-              searchText
-                ? "No favorites match your search."
-                : "Apps you add to favorites will appear here for quick access."
-            }
-            icon={Icon.Star}
-          />
-        )}
-
-        {filteredStarred.map((item, index) => {
-          const app = item.app;
-          const rating = app.averageUserRatingForCurrentVersion || app.averageUserRating;
-          const ratingText = rating ? renderStarRating(rating) : "";
-          const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
-
-          return (
-            <List.Item
-              key={`${app.bundleId}-${index}`}
-              title={app.name}
-              subtitle={app.sellerName}
-              accessories={[
-                { text: app.version },
-                { text: formatPrice(app.price, app.currency) },
-                { text: ratingText },
-                { icon: Icon.Star, tooltip: "Favorite" },
-              ]}
-              icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
-              actions={
-                <ActionPanel>
-                  <ActionPanel.Section>
-                    <AppActionPanel
-                      app={app}
-                      onDownload={() =>
-                        downloadApp(
-                          app.bundleId,
-                          app.name,
-                          app.version,
-                          app.price,
-                          undefined,
-                          undefined,
-                          app.fileSizeBytes,
-                          app,
-                        )
-                      }
-                      showViewDetails={true}
-                    />
-                  </ActionPanel.Section>
-                  <ActionPanel.Section title="Export">
-                    <Action
-                      title="Export Favorites to Markdown"
-                      onAction={exportToMarkdown}
-                      icon={Icon.Document}
-                      shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
-                    />
-                    <Action
-                      title="Export Favorites to CSV"
-                      onAction={exportToCSV}
-                      icon={Icon.Document}
-                      shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-                    />
-                  </ActionPanel.Section>
-                  <ActionPanel.Section>
-                    <Action
-                      title="Clear All Favorites"
-                      onAction={clearAllFavorites}
-                      icon={Icon.Trash}
-                      style={Action.Style.Destructive}
-                    />
-                  </ActionPanel.Section>
-                </ActionPanel>
-              }
-            />
-          );
-        })}
-      </List>
-    );
-  }
-
-  // Show recent searches when no search text and filter is "all"
+  // Show recent searches when no search text
   if (!searchText) {
     return (
-      <List
-        onSearchTextChange={setSearchText}
-        isLoading={isLoading}
-        searchBarAccessory={
-          <List.Dropdown tooltip="Filter" value={filter} onChange={(newValue) => setFilter(newValue as FilterOption)}>
-            <List.Dropdown.Item title="All Apps" value="all" />
-            <List.Dropdown.Item title="Favorites" value="favorites" />
-          </List.Dropdown>
-        }
-      >
+      <List onSearchTextChange={setSearchText} isLoading={isLoading}>
         {recentSearches.length > 0 && (
           <List.Section title="Recent Searches">
             {recentSearches.map((search, index) => (
@@ -237,12 +73,6 @@ export default function Search() {
       searchBarPlaceholder="Search for iOS apps..."
       throttle
       navigationTitle="Search iOS Apps"
-      searchBarAccessory={
-        <List.Dropdown tooltip="Filter" value={filter} onChange={(newValue) => setFilter(newValue as FilterOption)}>
-          <List.Dropdown.Item title="All Apps" value="all" />
-          <List.Dropdown.Item title="Favorites" value="favorites" />
-        </List.Dropdown>
-      }
     >
       {/* Handle error state */}
       {error && <List.EmptyView title={error} icon={{ source: Icon.Warning }} />}
@@ -266,6 +96,9 @@ export default function Search() {
             // Get app icon
             const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
 
+            // Check if app is favorited
+            const isFavorited = isFavorite(app.bundleId);
+
             return (
               <List.Item
                 key={app.bundleId}
@@ -276,6 +109,10 @@ export default function Search() {
                   { text: formatPrice(app.price, app.currency) },
                   { text: releaseDate },
                   { text: ratingText },
+                  {
+                    icon: { source: isFavorited ? Icon.Heart : Icon.HeartDisabled, tintColor: Color.Magenta },
+                    tooltip: isFavorited ? "Favorited" : "Not Favorited",
+                  },
                 ]}
                 icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
                 detail={
@@ -333,6 +170,9 @@ export default function Search() {
                       )
                     }
                     showViewDetails={true}
+                    isFavorited={isFavorited}
+                    onAddFavorite={addFavorite}
+                    onRemoveFavorite={removeFavorite}
                   />
                 }
               />

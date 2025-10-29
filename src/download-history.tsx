@@ -1,67 +1,26 @@
-import { Icon, List, ActionPanel, Action, showToast, Toast } from "@raycast/api";
+import { Icon, List, ActionPanel, Action } from "@raycast/api";
 import { useState, useEffect, useCallback } from "react";
-import { formatPrice, formatDate } from "./utils/formatting";
-import { renderStarRating } from "./utils/common";
-import {
-  getDownloadHistory,
-  removeFromDownloadHistory,
-  clearDownloadHistory,
-  addStarredApp,
-  removeStarredApp,
-  isAppStarred,
-  type DownloadHistoryItem,
-} from "./utils/storage";
-import { useAppDownload } from "./hooks";
-import { useAuthNavigation } from "./hooks/useAuthNavigation";
+import { formatDate, formatFriendlyDateTime } from "./utils/formatting";
+import { useAppDownload, useFavoriteApps, useDownloadHistory } from "./hooks";
+import { useAuthNavigation } from "./hooks/use-auth-navigation";
+import type { DownloadHistoryItem } from "./utils/storage";
+import AppDetailView from "./views/app-detail-view";
 
-type SortOption = "date" | "name" | "developer" | "bundleId";
+type SortOption = "recent" | "oldest" | "mostDownloaded" | "leastDownloaded" | "name";
 
 export default function DownloadHistory() {
-  const [history, setHistory] = useState<DownloadHistoryItem[]>([]);
   const [filteredHistory, setFilteredHistory] = useState<DownloadHistoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [starredApps, setStarredApps] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<SortOption>("recent");
 
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
-
-  // Load download history
-  const loadHistory = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const historyData = await getDownloadHistory(50);
-      setHistory(historyData);
-      setFilteredHistory(historyData);
-
-      // Load starred apps status
-      const starredStatus = new Set<string>();
-      for (const item of historyData) {
-        if (await isAppStarred(item.app.bundleId)) {
-          starredStatus.add(item.app.bundleId);
-        }
-      }
-      setStarredApps(starredStatus);
-    } catch (error) {
-      console.error("Error loading download history:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to Load History",
-        message: "Could not load download history",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
+  const { downloadHistory, removeFromHistory, clearHistory, isLoading } = useDownloadHistory(100);
 
   // Sort and filter history
   useEffect(() => {
-    let filtered = history;
+    let filtered = downloadHistory;
 
     // Apply search filter
     if (searchText) {
@@ -77,102 +36,36 @@ export default function DownloadHistory() {
     // Apply sorting
     filtered = [...filtered].sort((a, b) => {
       switch (sortBy) {
-        case "date":
+        case "recent":
           return new Date(b.downloadDate).getTime() - new Date(a.downloadDate).getTime();
+        case "oldest":
+          return new Date(a.downloadDate).getTime() - new Date(b.downloadDate).getTime();
+        case "mostDownloaded":
+          return b.downloadCount - a.downloadCount;
+        case "leastDownloaded":
+          return a.downloadCount - b.downloadCount;
         case "name":
           return a.app.name.localeCompare(b.app.name);
-        case "developer":
-          return a.app.sellerName.localeCompare(b.app.sellerName);
-        case "bundleId":
-          return a.app.bundleId.localeCompare(b.app.bundleId);
         default:
           return 0;
       }
     });
 
     setFilteredHistory(filtered);
-  }, [history, searchText, sortBy]);
+  }, [downloadHistory, searchText, sortBy]);
 
-  // Remove item from history
-  const removeHistoryItem = useCallback(
-    async (bundleId: string) => {
-      try {
-        await removeFromDownloadHistory(bundleId);
-        await loadHistory();
-        await showToast({
-          style: Toast.Style.Success,
-          title: "Removed from History",
-          message: "App removed from download history",
-        });
-      } catch (error) {
-        console.error("Error removing from history:", error);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Failed to Remove",
-          message: "Could not remove app from history",
-        });
-      }
-    },
-    [loadHistory],
-  );
-
-  // Clear all history
-  const clearAllHistory = useCallback(async () => {
-    try {
-      await clearDownloadHistory();
-      await loadHistory();
-      await showToast({
-        style: Toast.Style.Success,
-        title: "History Cleared",
-        message: "Download history has been cleared",
-      });
-    } catch (error) {
-      console.error("Error clearing history:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to Clear",
-        message: "Could not clear download history",
-      });
-    }
-  }, [loadHistory]);
-
-  // Toggle starred status
-  const toggleStarred = useCallback(
+  // Toggle favorite status
+  const toggleFavorite = useCallback(
     async (item: DownloadHistoryItem) => {
-      try {
-        const isStarred = starredApps.has(item.app.bundleId);
+      const isFavorited = isFavorite(item.app.bundleId);
 
-        if (isStarred) {
-          await removeStarredApp(item.app.bundleId);
-          setStarredApps((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(item.app.bundleId);
-            return newSet;
-          });
-          await showToast({
-            style: Toast.Style.Success,
-            title: "Removed from Favorites",
-            message: `${item.app.name} removed from favorites`,
-          });
-        } else {
-          await addStarredApp(item.app);
-          setStarredApps((prev) => new Set(prev).add(item.app.bundleId));
-          await showToast({
-            style: Toast.Style.Success,
-            title: "Added to Favorites",
-            message: `${item.app.name} added to favorites`,
-          });
-        }
-      } catch (error) {
-        console.error("Error toggling starred status:", error);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Failed to Update Favorites",
-          message: "Could not update favorite status",
-        });
+      if (isFavorited) {
+        await removeFavorite(item.app.bundleId);
+      } else {
+        await addFavorite(item.app);
       }
     },
-    [starredApps],
+    [isFavorite, addFavorite, removeFavorite],
   );
 
   return (
@@ -182,10 +75,11 @@ export default function DownloadHistory() {
       searchBarPlaceholder="Search download history..."
       searchBarAccessory={
         <List.Dropdown tooltip="Sort by" onChange={(newValue) => setSortBy(newValue as SortOption)}>
-          <List.Dropdown.Item title="Date" value="date" />
-          <List.Dropdown.Item title="Name" value="name" />
-          <List.Dropdown.Item title="Developer" value="developer" />
-          <List.Dropdown.Item title="Bundle ID" value="bundleId" />
+          <List.Dropdown.Item title="Most Recent" value="recent" />
+          <List.Dropdown.Item title="Oldest First" value="oldest" />
+          <List.Dropdown.Item title="Most Downloaded" value="mostDownloaded" />
+          <List.Dropdown.Item title="Least Downloaded" value="leastDownloaded" />
+          <List.Dropdown.Item title="Name (A-Z)" value="name" />
         </List.Dropdown>
       }
       actions={
@@ -193,7 +87,7 @@ export default function DownloadHistory() {
           <ActionPanel>
             <Action
               title="Clear All History"
-              onAction={clearAllHistory}
+              onAction={clearHistory}
               icon={Icon.Trash}
               style={Action.Style.Destructive}
             />
@@ -211,79 +105,33 @@ export default function DownloadHistory() {
 
       {filteredHistory.map((item, index) => {
         const app = item.app;
-        const rating = app.averageUserRatingForCurrentVersion || app.averageUserRating;
-        const ratingText = rating ? renderStarRating(rating) : "";
-        const releaseDate = formatDate(app.currentVersionReleaseDate || app.releaseDate);
         const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
-        const isStarred = starredApps.has(app.bundleId);
+        const isFavorited = isFavorite(app.bundleId);
+        const friendlyDate = formatFriendlyDateTime(item.downloadDate);
+        const downloadCountText = item.downloadCount + "x";
+        const downloadCountTooltip =
+          "Downloaded " + item.downloadCount + " time" + (item.downloadCount !== 1 ? "s" : "");
+        const versionText = "v" + app.version;
+        const itemKey = app.bundleId + "-" + index;
 
         return (
           <List.Item
-            key={`${app.bundleId}-${index}`}
+            key={itemKey}
             title={app.name}
-            subtitle={app.sellerName}
             accessories={[
-              { text: `Downloaded ${item.downloadCount} time${item.downloadCount !== 1 ? "s" : ""}` },
-              { text: app.version },
-              { text: formatPrice(app.price, app.currency) },
-              { text: formatDate(item.downloadDate) },
-              { text: ratingText },
-              ...(isStarred ? [{ icon: Icon.Star, tooltip: "In Favorites" }] : []),
+              { text: friendlyDate, tooltip: formatDate(item.downloadDate) },
+              { text: downloadCountText, tooltip: downloadCountTooltip },
+              { text: versionText, tooltip: "Version" },
+              ...(isFavorited ? [{ icon: Icon.Star, tooltip: "In Favorites" }] : []),
             ]}
             icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
-            detail={
-              <List.Item.Detail
-                markdown={`
-                # ${app.name} ${app.version}
-                
-                ${iconUrl ? `![App Icon](${iconUrl})` : ""}
-                
-                **Developer:** ${app.sellerName}
-                
-                **Price:** ${formatPrice(app.price, app.currency)}
-                
-                **Rating:** ${ratingText}
-                
-                **Bundle ID:** \`${app.bundleId}\`
-                
-                **Downloaded:** ${formatDate(item.downloadDate)} (${item.downloadCount} times)
-                
-                **Release Date:** ${releaseDate}
-                
-                **Genre:** ${app.genres?.join(", ") || "Not available"}
-                
-                ## Description
-                ${app.description || "No description available"}
-                `}
-                metadata={
-                  <List.Item.Detail.Metadata>
-                    <List.Item.Detail.Metadata.Label key="name" title="Name" text={app.name} />
-                    <List.Item.Detail.Metadata.Label key="version" title="Version" text={app.version} />
-                    <List.Item.Detail.Metadata.Label key="developer" title="Developer" text={app.sellerName} />
-                    <List.Item.Detail.Metadata.Label
-                      key="price"
-                      title="Price"
-                      text={formatPrice(app.price, app.currency)}
-                    />
-                    <List.Item.Detail.Metadata.Label key="rating" title="Rating" text={ratingText} />
-                    <List.Item.Detail.Metadata.Label key="bundleId" title="Bundle ID" text={app.bundleId} />
-                    <List.Item.Detail.Metadata.Label
-                      key="downloadDate"
-                      title="Downloaded"
-                      text={formatDate(item.downloadDate)}
-                    />
-                    <List.Item.Detail.Metadata.Label
-                      key="downloadCount"
-                      title="Download Count"
-                      text={item.downloadCount.toString()}
-                    />
-                    <List.Item.Detail.Metadata.Label key="releaseDate" title="Release Date" text={releaseDate} />
-                  </List.Item.Detail.Metadata>
-                }
-              />
-            }
             actions={
               <ActionPanel>
+                <Action.Push
+                  title="View App Details"
+                  target={<AppDetailView app={app} />}
+                  icon={Icon.AppWindowSidebarLeft}
+                />
                 <Action
                   title="Download Again"
                   onAction={() =>
@@ -299,22 +147,24 @@ export default function DownloadHistory() {
                     )
                   }
                   icon={Icon.Download}
+                  shortcut={{ modifiers: ["cmd"], key: "d" }}
                 />
                 <Action
-                  title={isStarred ? "Remove from Favorites" : "Add to Favorites"}
-                  onAction={() => toggleStarred(item)}
-                  icon={isStarred ? Icon.StarDisabled : Icon.Star}
+                  title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
+                  onAction={() => toggleFavorite(item)}
+                  icon={isFavorited ? Icon.HeartDisabled : Icon.Heart}
+                  shortcut={{ modifiers: ["cmd"], key: "f" }}
                 />
                 <Action
                   title="Delete History Item"
-                  onAction={() => removeHistoryItem(app.bundleId)}
+                  onAction={() => removeFromHistory(app.bundleId)}
                   icon={Icon.Trash}
                   style={Action.Style.Destructive}
                   shortcut={{ modifiers: ["ctrl"], key: "x" }}
                 />
                 <Action
                   title="Clear All History"
-                  onAction={clearAllHistory}
+                  onAction={clearHistory}
                   icon={Icon.Trash}
                   style={Action.Style.Destructive}
                 />

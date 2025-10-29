@@ -1,16 +1,14 @@
 // Displays comprehensive information about an iOS app with metadata and actions
 import { Detail, Color, Icon } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { useState, useEffect } from "react";
 import { AppDetails } from "../types";
 import { formatPrice, formatDate } from "../utils/formatting";
 import { renderStarRating } from "../utils/common";
 import { AppActionPanel } from "../components/app-action-panel";
-import { useAppDetails, useAppDownload } from "../hooks";
+import { useAppDetails, useAppDownload, useFavoriteApps } from "../hooks";
 import { logger } from "@chrismessina/raycast-logger";
 import { getAppStoreUrl } from "../utils/constants";
-import { useAuthNavigation } from "../hooks/useAuthNavigation";
-import { isAppStarred } from "../utils/storage";
+import { useAuthNavigation } from "../hooks/use-auth-navigation";
 
 interface AppDetailViewProps {
   app: AppDetails;
@@ -21,21 +19,8 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
   const { app, isLoading } = useAppDetails(initialApp);
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
-  const [isStarred, setIsStarred] = useState(false);
-
-  // Check if app is starred
-  useEffect(() => {
-    const checkStarStatus = async () => {
-      try {
-        const starred = await isAppStarred(app.bundleId);
-        setIsStarred(starred);
-      } catch (error) {
-        console.error("Error checking star status:", error);
-      }
-    };
-
-    checkStarStatus();
-  }, [app.bundleId]);
+  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
+  const isFavorited = isFavorite(app.bundleId);
 
   // Function to format file size to human-readable format (e.g., KB, MB, GB)
   // Handles string or number input and provides fallbacks for invalid values
@@ -106,7 +91,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
       isLoading={isLoading}
       navigationTitle={app.name}
       markdown={`
-## ${app.name} (${app.version})${isStarred ? " ★" : ""}
+## ${app.name} (${app.version})${isFavorited ? " ♥" : ""}
 
 ${iconUrl && `![App Icon](${iconUrl}?raycast-width=128&raycast-height=128)`}
 
@@ -172,6 +157,9 @@ ${app.screenshotUrls.map((url, index) => `![Screenshot ${index + 1}](${url}?rayc
             return downloadApp(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes);
           }}
           showViewDetails={false}
+          isFavorited={isFavorited}
+          onAddFavorite={addFavorite}
+          onRemoveFavorite={removeFavorite}
         />
       }
     />
