@@ -1,14 +1,16 @@
 // Displays comprehensive information about an iOS app with metadata and actions
 import { Detail, Color, Icon } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { AppDetails } from "./types";
-import { formatPrice, formatDate } from "./utils/formatting";
-import { renderStarRating } from "./utils/common";
-import { AppActionPanel } from "./components/app-action-panel";
-import { useAppDetails, useAppDownload } from "./hooks";
+import { useState, useEffect } from "react";
+import { AppDetails } from "../types";
+import { formatPrice, formatDate } from "../utils/formatting";
+import { renderStarRating } from "../utils/common";
+import { AppActionPanel } from "../components/app-action-panel";
+import { useAppDetails, useAppDownload } from "../hooks";
 import { logger } from "@chrismessina/raycast-logger";
-import { getAppStoreUrl } from "./utils/constants";
-import { useAuthNavigation } from "./hooks/useAuthNavigation";
+import { getAppStoreUrl } from "../utils/constants";
+import { useAuthNavigation } from "../hooks/useAuthNavigation";
+import { isAppStarred } from "../utils/storage";
 
 interface AppDetailViewProps {
   app: AppDetails;
@@ -19,6 +21,21 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
   const { app, isLoading } = useAppDetails(initialApp);
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
+  const [isStarred, setIsStarred] = useState(false);
+
+  // Check if app is starred
+  useEffect(() => {
+    const checkStarStatus = async () => {
+      try {
+        const starred = await isAppStarred(app.bundleId);
+        setIsStarred(starred);
+      } catch (error) {
+        console.error("Error checking star status:", error);
+      }
+    };
+
+    checkStarStatus();
+  }, [app.bundleId]);
 
   // Function to format file size to human-readable format (e.g., KB, MB, GB)
   // Handles string or number input and provides fallbacks for invalid values
@@ -89,7 +106,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
       isLoading={isLoading}
       navigationTitle={app.name}
       markdown={`
-## ${app.name} (${app.version})
+## ${app.name} (${app.version})${isStarred ? " ★" : ""}
 
 ${iconUrl && `![App Icon](${iconUrl}?raycast-width=128&raycast-height=128)`}
 

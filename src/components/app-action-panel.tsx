@@ -2,7 +2,7 @@ import { ActionPanel, Action, Icon } from "@raycast/api";
 import { AppDetails } from "../types";
 import { AppActions } from "./app-actions";
 import { CopyActions } from "./copy-actions";
-import AppDetailView from "../app-detail-view";
+import AppDetailView from "../views/app-detail-view";
 
 interface AppActionPanelProps {
   app: AppDetails;

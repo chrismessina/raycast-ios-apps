@@ -3,6 +3,13 @@ import { showToast, Toast } from "@raycast/api";
 import { debounce } from "lodash";
 import type { AppDetails } from "../types";
 import { searchITunesApps, convertITunesResultToAppDetails } from "../utils/itunes-api";
+import {
+  getRecentSearches,
+  addRecentSearch,
+  clearRecentSearches,
+  removeRecentSearch,
+  type RecentSearch,
+} from "../utils/storage";
 
 interface UseAppSearchResult {
   apps: AppDetails[];
@@ -11,13 +18,16 @@ interface UseAppSearchResult {
   totalResults: number;
   searchText: string;
   setSearchText: (text: string) => void;
+  recentSearches: RecentSearch[];
+  clearRecentSearches: () => Promise<void>;
+  removeRecentSearch: (query: string) => Promise<void>;
 }
 
 /**
- * Hook for searching apps with debounced input
+ * Hook for searching apps with debounced input and recent searches support
  * @param initialSearchText Initial search text
  * @param debounceMs Debounce time in milliseconds
- * @returns Object with search results and state
+ * @returns Object with search results, state, and recent searches
  */
 export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSearchResult {
   const [searchText, setSearchText] = useState(initialSearchText);
@@ -25,6 +35,21 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
   const [apps, setApps] = useState<AppDetails[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [totalResults, setTotalResults] = useState<number>(0);
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+
+  // Load recent searches on mount
+  useEffect(() => {
+    const loadRecentSearches = async () => {
+      try {
+        const searches = await getRecentSearches(10);
+        setRecentSearches(searches);
+      } catch (error) {
+        console.error("Error loading recent searches:", error);
+      }
+    };
+
+    loadRecentSearches();
+  }, []);
 
   // Handle search errors
   const handleSearchError = (err: unknown) => {
@@ -70,6 +95,13 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
 
       setApps(uniqueApps);
       setTotalResults(uniqueApps.length);
+
+      // Only add to recent searches after successful search with results
+      await addRecentSearch(query);
+
+      // Refresh recent searches
+      const updatedSearches = await getRecentSearches(10);
+      setRecentSearches(updatedSearches);
     } catch (err) {
       handleSearchError(err);
     } finally {
@@ -100,6 +132,47 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
     };
   }, [searchText, debouncedSearch]);
 
+  // Clear recent searches
+  const clearRecentSearchesCallback = useCallback(async () => {
+    try {
+      await clearRecentSearches();
+      setRecentSearches([]);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Recent Searches Cleared",
+        message: "Your search history has been cleared",
+      });
+    } catch (error) {
+      console.error("Error clearing recent searches:", error);
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to Clear Searches",
+        message: "Could not clear recent searches",
+      });
+    }
+  }, []);
+
+  // Remove a specific recent search
+  const removeRecentSearchCallback = useCallback(async (query: string) => {
+    try {
+      await removeRecentSearch(query);
+      const updatedSearches = await getRecentSearches(10);
+      setRecentSearches(updatedSearches);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Search Removed",
+        message: `"${query}" removed from recent searches`,
+      });
+    } catch (error) {
+      console.error("Error removing recent search:", error);
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to Remove Search",
+        message: "Could not remove recent search",
+      });
+    }
+  }, []);
+
   return {
     apps,
     isLoading,
@@ -107,5 +180,8 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
     totalResults,
     searchText,
     setSearchText: (text: string) => setSearchText(text),
+    recentSearches,
+    clearRecentSearches: clearRecentSearchesCallback,
+    removeRecentSearch: removeRecentSearchCallback,
   };
 }

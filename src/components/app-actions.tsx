@@ -5,6 +5,7 @@ import { downloadScreenshots } from "../utils/screenshot-downloader";
 import { getAppStoreUrl } from "../utils/constants";
 import { useAppDownload } from "../hooks/use-app-download";
 import { useAuthNavigation } from "../hooks/useAuthNavigation";
+import { StarActions } from "./star-actions";
 
 interface AppActionsProps {
   app: AppDetails;
@@ -62,6 +63,7 @@ export function AppActions({ app, onDownload, onDownloadScreenshots }: AppAction
         onAction={handleDownload}
         shortcut={{ modifiers: ["cmd"], key: "s" }}
       />
+      <StarActions app={app} />
       <Action
         title="Download Screenshots"
         icon={Icon.Image}

@@ -14,7 +14,14 @@
       "name": "search",
       "title": "Search iOS Apps",
       "subtitle": "iOS App Search",
-      "description": "Search for iOS apps on the App Store",
+      "description": "Search for iOS apps on the App Store and view favorites",
+      "mode": "view"
+    },
+    {
+      "name": "download-history",
+      "title": "Download History",
+      "subtitle": "iOS Apps",
+      "description": "View your app download history",
       "mode": "view"
     },
     {

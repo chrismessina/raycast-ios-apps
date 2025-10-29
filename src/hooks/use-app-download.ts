@@ -6,6 +6,8 @@ import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 import { AuthNavigationHelpers } from "./useAuthNavigation";
 import { NeedsLoginError, Needs2FAError, ensureAuthenticated } from "../utils/auth";
 import { logger } from "@chrismessina/raycast-logger";
+import { addToDownloadHistory } from "../utils/storage";
+import type { AppDetails } from "../types";
 
 // Global download state to prevent concurrent downloads across all hook instances
 const globalDownloadState = {
@@ -31,6 +33,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
    * @param version The version of the app
    * @param price The price of the app
    * @param showHudMessages Whether to show HUD messages during download
+   * @param appDetails Full app details for history recording
    * @returns The path to the downloaded file or undefined if download failed
    */
   const handleDownload = async (
@@ -41,6 +44,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     showHudMessages = true,
     opId?: string,
     expectedSizeBytes?: number,
+    appDetails?: AppDetails,
   ): Promise<string | null | undefined> => {
     // Generate or reuse an operation ID for this logical download flow
     const operationId = opId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -172,10 +176,10 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           logger.log(
             `[useAppDownload] Showing Toast (animated): "Downloading ${name}..." (avoid HUD to keep view open)`,
           );
-          progressToast = await showToast({ 
-            style: Toast.Style.Animated, 
+          progressToast = await showToast({
+            style: Toast.Style.Animated,
             title: `Downloading ${name}...`,
-            message: "0%"
+            message: "0%",
           });
         } else {
           logger.log(`[useAppDownload] Showing HUD: "Downloading ${name}..."`);
@@ -185,13 +189,15 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       const filePath = await downloadApp(bundleId, name, version, price, 0, undefined, {
         suppressHUD: Boolean(authNavigation),
-        onProgress: progressToast ? (progress: number) => {
-          const percentage = Math.floor(progress * 100);
-          if (progressToast) {
-            progressToast.message = `${percentage}%`;
-          }
-          logger.log(`[useAppDownload] Download progress: ${percentage}%`);
-        } : undefined,
+        onProgress: progressToast
+          ? (progress: number) => {
+              const percentage = Math.floor(progress * 100);
+              if (progressToast) {
+                progressToast.message = `${percentage}%`;
+              }
+              logger.log(`[useAppDownload] Download progress: ${percentage}%`);
+            }
+          : undefined,
         expectedSizeBytes,
       });
 
@@ -199,13 +205,22 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         // Verify file actually exists before showing success
         const fs = await import("fs");
         if (fs.existsSync(filePath)) {
+          // Add to download history if app details are available
+          if (appDetails) {
+            try {
+              await addToDownloadHistory(appDetails, filePath);
+            } catch (error) {
+              console.error("Error adding to download history:", error);
+            }
+          }
+
           if (showHudMessages && !authNavigation) {
             logger.log(`[useAppDownload] Showing HUD: "Download Complete" for ${name}`);
             await showHUD("Download Complete");
           }
 
           logger.log(`[useAppDownload] File exists. Success toast for ${name} at ${filePath}`);
-          
+
           // Update the progress toast if it exists, otherwise create a new success toast
           if (progressToast) {
             progressToast.style = Toast.Style.Success;
@@ -394,7 +409,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                     : errorAnalysis.errorType === "account_restriction"
                       ? "Account Restricted"
                       : "Download Failed";
-        
+
         // Update progress toast if it exists
         if (progressToast) {
           progressToast.style = Toast.Style.Failure;

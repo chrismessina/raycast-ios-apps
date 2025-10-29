@@ -1,5 +1,9 @@
-import { AppDetails, IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { convertITunesResultToAppDetails, convertIpaToolSearchAppToAppDetails, fetchITunesAppDetails } from "./utils/itunes-api";
+import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
+import {
+  convertITunesResultToAppDetails,
+  convertIpaToolSearchAppToAppDetails,
+  fetchITunesAppDetails,
+} from "./utils/itunes-api";
 import { ensureAuthenticated } from "./utils/auth";
 import { execFile, spawn } from "child_process";
 import { extractFilePath, safeJsonParse } from "./utils/common";
@@ -680,7 +684,7 @@ export async function downloadApp(
 
       // Use provided expectedSizeBytes or fetch from iTunes API as fallback
       let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
-      
+
       if (!expectedSizeBytes) {
         try {
           const itunesDetails = await fetchITunesAppDetails(bundleId);
@@ -694,9 +698,7 @@ export async function downloadApp(
           logger.warn(`[validation] Could not fetch app size from iTunes API, using fallback:`, error);
         }
       } else {
-        logger.log(
-          `[validation] Using provided expected app size: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
-        );
+        logger.log(`[validation] Using provided expected app size: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`);
       }
 
       const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes, appVersion);
@@ -725,7 +727,7 @@ export async function downloadApp(
     // Get expected file size for progress tracking
     // Use provided size or fetch from iTunes API as fallback (only on initial attempt to avoid duplicate calls)
     let expectedSizeBytes: number | undefined = retryCount === 0 ? options?.expectedSizeBytes : undefined;
-    
+
     if (!expectedSizeBytes && retryCount === 0) {
       try {
         const itunesDetails = await fetchITunesAppDetails(bundleId);
@@ -820,25 +822,25 @@ export async function downloadApp(
               if (fs.existsSync(partialFilePath)) {
                 const stats = fs.statSync(partialFilePath);
                 const currentSize = stats.size;
-                
+
                 // Only report progress if file size has changed significantly
                 if (currentSize > lastReportedSize + 1024 * 1024 || currentSize === expectedSizeBytes) {
                   const progress = Math.min(currentSize / expectedSizeBytes, 1.0);
-                  
+
                   if (progress > lastProgress) {
                     lastProgress = progress;
                     resetStallTimer(); // Reset stall timer on progress
-                    
+
                     // Call progress callback if provided
                     if (options?.onProgress) {
                       options.onProgress(progress);
                     }
-                    
+
                     if (!suppressHUD) {
                       const progressPercent = Math.round(progress * 100);
                       showHUD(`Downloading ${appName || bundleId}... ${progressPercent}%`);
                     }
-                    
+
                     lastReportedSize = currentSize;
                     logger.log(
                       `[ipatool] Download progress: ${Math.ceil(currentSize / BYTES_PER_MB)}/${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB (${Math.round(progress * 100)}%)`,
@@ -952,7 +954,9 @@ export async function downloadApp(
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 // Resolve with the retry result to properly propagate the Promise chain
-                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                resolve(
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                );
                 return;
               }
 
@@ -972,7 +976,9 @@ export async function downloadApp(
                   await showHUD(`Download stalled. Retrying in ${Math.round(retryDelay / 1000)}s...`);
                 }
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
-                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                resolve(
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                );
                 return;
               }
 
@@ -999,7 +1005,9 @@ export async function downloadApp(
                 }
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, baseDelay));
-                resolve(await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options));
+                resolve(
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                );
                 return;
               }
 
