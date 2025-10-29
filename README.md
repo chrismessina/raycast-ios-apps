@@ -12,10 +12,14 @@ _Search, view, and download iOS apps from the App Store in Raycast._
 ## Features
 
 - **Search**: Quickly search for iOS apps by name, developer, or bundle ID
+- **Recent Searches**: Automatically tracks your search history for quick access to previous queries
 - **Rich App Details**: View comprehensive app information including ratings, screenshots, and metadata
 - **Download**: Download IPA files directly to your computer
+- **Favorites**: Save your favorite apps for quick access and export them to Markdown or CSV
+- **Download History**: Track all your app downloads with sorting, filtering, and download count tracking
 - **Copy Actions**: Easily copy app metadata like bundle ID, version, and App Store URLs
 - **Raycast AI Tools**: Use AI commands to search, get details, and download iOS apps
+- **Logout**: Securely revoke ipatool authentication and clear stored credentials
 
 ## Requirements
 
@@ -109,7 +113,22 @@ This extension requires you to authenticate with your Apple ID in order to searc
 - Authentication is handled directly by ipatool, which securely stores credentials in your system's keychain
 - **NEW**: Authentication can now be completed directly within the Raycast UI with dedicated forms for both standard login and two-factor authentication
 
+## Commands
+
+The extension provides the following commands:
+
+- **Search iOS Apps**: Search for iOS apps on the App Store with automatic recent search tracking
+- **View Favorites**: Access and manage your favorite apps with export capabilities
+- **Download History**: View your complete download history with sorting and filtering options
+- **Logout**: Revoke ipatool authentication and clear stored credentials
+
 ## Configuration
+
+### Path Settings
+
+- **Download Path**: Directory where downloaded IPA files and screenshots are saved (default: ~/Downloads)
+- **Homebrew Path**: Path to the Homebrew executable (default: /opt/homebrew/bin/brew)
+- **ipatool Path**: Path to the ipatool executable (default: /opt/homebrew/bin/ipatool)
 
 ### Concurrency Settings
 
@@ -126,6 +145,19 @@ The extension allows you to control download performance through configurable co
   - Longer timeouts help with slow connections or large images
   - Shorter timeouts prevent hanging on failed downloads
   - The extension automatically retries failed downloads
+- **Max Stall Timeout**: Timeout when no progress is made during downloads (default: 30000 milliseconds)
+
+### File Management
+
+- **Cleanup Temporary Files**: Automatically clean up temporary files when the extension exits (default: enabled)
+- **Integrity Verification**: Level of file integrity verification to perform
+  - **Basic**: Quick file size and existence checks (default)
+  - **Checksum**: Full checksum verification for downloaded files
+  - **Off**: No integrity verification
+
+### Debugging
+
+- **Verbose Logging**: Enable detailed console logging for debugging purposes (default: disabled)
 
 ### Platform Preferences
 
@@ -145,6 +177,35 @@ You can control which device platforms to include when downloading screenshots:
 - Disabled platforms are skipped during download, saving time and storage space
 - The scraping process provides detailed feedback about available vs. downloaded screenshots per platform
 - Platform-specific progress tracking shows real-time download status for each enabled platform
+
+## Favorites
+
+The Favorites feature allows you to save apps for quick access:
+
+- **Add to Favorites**: Star any app from search results or app details
+- **Quick Access**: View all your favorite apps in one place
+- **Export Options**: Export your favorites list to Markdown or CSV format
+- **Persistent Storage**: Favorites are stored securely using Raycast's storage API
+
+## Download History
+
+Track all your app downloads with comprehensive history management:
+
+- **Automatic Tracking**: Every download is automatically recorded with timestamp and count
+- **Download Counter**: See how many times you've downloaded each app
+- **Sorting Options**: Sort by most recent, oldest, most downloaded, least downloaded, or name
+- **Search & Filter**: Quickly find apps in your history by name, developer, or bundle ID
+- **Quick Actions**: Re-download apps, add to favorites, or remove individual history items
+- **History Limit**: Stores up to 100 most recent downloads
+
+## Recent Searches
+
+The extension automatically tracks your search history:
+
+- **Automatic Tracking**: Search queries are saved automatically
+- **Quick Access**: Recent searches appear when you open the search command
+- **One-Click Search**: Click any recent search to instantly re-run that query
+- **History Management**: Remove individual searches or clear all history
 
 ## About App Downloads and Screenshots
 
@@ -243,6 +304,14 @@ Options:
 - `query`: The name or search term for the iOS app (required)
 
 The download tool will search for the app, retrieve its details, and download the IPA file to your specified download directory.
+
+### Logout Command
+
+The Logout command provides a secure way to manage your authentication:
+
+- **Revoke Authentication**: Removes ipatool authentication from your system keychain
+- **Clear Credentials**: Clears any stored Apple ID credentials from the extension
+- **Fresh Start**: Useful when switching Apple IDs or troubleshooting authentication issues
 
 ### App Downloads
 
