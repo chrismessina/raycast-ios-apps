@@ -20,10 +20,7 @@ export default function DownloadHistory() {
   const { downloadHistory, removeFromHistory, clearHistory, isLoading } = useDownloadHistory(100);
 
   // Get bundle IDs for version checking - include refreshKey to force re-fetch
-  const bundleIds = useMemo(
-    () => downloadHistory.map((item) => item.app.bundleId),
-    [downloadHistory, refreshKey],
-  );
+  const bundleIds = useMemo(() => downloadHistory.map((item) => item.app.bundleId), [downloadHistory, refreshKey]);
   const { latestVersions } = useLatestVersions(bundleIds);
 
   // Sort and filter history
@@ -101,8 +98,7 @@ export default function DownloadHistory() {
       const isFavorited = isFavorite(app.bundleId);
       const friendlyDate = formatFriendlyDateTime(item.downloadDate);
       const downloadCountText = item.downloadCount + "x";
-      const downloadCountTooltip =
-        "Downloaded " + item.downloadCount + " time" + (item.downloadCount !== 1 ? "s" : "");
+      const downloadCountTooltip = "Downloaded " + item.downloadCount + " time" + (item.downloadCount !== 1 ? "s" : "");
 
       // Get latest version info
       const latestVersionInfo = latestVersions.get(app.bundleId);
@@ -157,7 +153,7 @@ export default function DownloadHistory() {
                     app.fileSizeBytes,
                     updatedApp,
                   );
-                  
+
                   // Trigger a refresh of latest versions after download completes
                   setRefreshKey((prev) => prev + 1);
                 }}
@@ -194,14 +190,7 @@ export default function DownloadHistory() {
         />
       );
     },
-    [
-      isFavorite,
-      latestVersions,
-      downloadApp,
-      toggleFavorite,
-      removeFromHistory,
-      clearHistory,
-    ],
+    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory],
   );
 
   return (
@@ -250,8 +239,6 @@ export default function DownloadHistory() {
           {appsWithoutUpdates.map((item, index) => renderListItem(item, index))}
         </List.Section>
       )}
-
-      
     </List>
   );
 }

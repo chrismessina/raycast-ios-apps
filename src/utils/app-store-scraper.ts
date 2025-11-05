@@ -5,29 +5,6 @@ import { getPreferenceValues, showToast, Toast } from "@raycast/api";
 import { APP_STORE_BASE_URL } from "./constants";
 import { handleToolError } from "./error-handler";
 
-/**
- * Raw screenshot data from App Store Shoebox JSON
- */
-interface RawScreenshotData {
-  url: string;
-  width?: number;
-  height?: number;
-  bgColor?: string;
-}
-
-/**
- * Platform data structure from App Store Shoebox JSON
- */
-interface PlatformData {
-  customAttributes?: {
-    default?: {
-      default?: {
-        customScreenshotsByType?: Record<string, RawScreenshotData[]>;
-      };
-    };
-  };
-}
-
 // App Store constants (imported from centralized constants)
 
 // App Store image resolution constants
@@ -277,223 +254,179 @@ function filterUniqueScreenshots(screenshots: ScreenshotInfo[]): ScreenshotInfo[
 }
 
 /**
- * Extract screenshots from the shoebox JSON blob in the App Store HTML
+ * Screenshot artwork data from App Store serialized data
+ */
+interface ScreenshotArtwork {
+  checksum: string | null;
+  backgroundColor: unknown;
+  textColor: unknown;
+  style: string | null;
+  crop: string;
+  contentMode: string | null;
+  imageScale: string | null;
+  template: string; // URL template with {w}x{h}{c}.{f} placeholders
+  width: number;
+  height: number;
+  variants: Array<{
+    format: string;
+    quality: number;
+    supportsWideGamut: boolean;
+  }>;
+}
+
+/**
+ * Platform media item from App Store serialized data
+ */
+interface PlatformMediaItem {
+  screenshot: ScreenshotArtwork;
+}
+
+/**
+ * Platform media section from App Store serialized data
+ */
+interface PlatformMediaSection {
+  items: PlatformMediaItem[];
+  contentsMetadata?: unknown;
+}
+
+/**
+ * Shelf mapping structure from App Store serialized data
+ */
+interface ShelfMapping {
+  product_media_phone_?: PlatformMediaSection;
+  product_media_pad_?: PlatformMediaSection;
+  product_media_mac_?: PlatformMediaSection;
+  product_media_vision_?: PlatformMediaSection;
+  product_media_tv_?: PlatformMediaSection;
+  product_media_watch_?: PlatformMediaSection;
+  [key: string]: unknown;
+}
+
+/**
+ * Build the highest resolution URL from a screenshot template
+ * @param template URL template with placeholders like {w}x{h}{c}.{f}
+ * @param width Original width
+ * @param height Original height
+ * @returns High resolution PNG URL
+ */
+function buildHighResolutionUrl(template: string, width: number, height: number): string {
+  // Replace template placeholders with original dimensions and PNG format:
+  // {w} = width, {h} = height, {c} = crop (bb = bounding box), {f} = format
+  // We use the original dimensions provided by Apple, which are the highest quality available,
+  // with "bb" for crop and "png" for the highest quality format
+  return template.replace("{w}x{h}{c}.{f}", `${width}x${height}bb.png`);
+}
+
+/**
+ * Extract screenshots from the serialized-server-data JSON in the App Store HTML
  *
- * This function implements a sophisticated parsing strategy to extract screenshot data from
- * Apple's "shoebox" JSON structure embedded in App Store web pages. The shoebox contains
- * nested JSON data that requires multi-step parsing and deep path traversal.
+ * This function parses the modern App Store web page structure that uses a JSON blob
+ * embedded in a script tag with id="serialized-server-data". This replaces the old
+ * "shoebox" JSON structure that Apple deprecated in their 2024 App Store redesign.
+ *
+ * The JSON contains platform-specific screenshot collections in the shelfMapping object:
+ * - product_media_phone_ for iPhone screenshots
+ * - product_media_pad_ for iPad screenshots
+ * - product_media_mac_ for Mac screenshots
+ * - product_media_vision_ for Vision Pro screenshots
+ * - product_media_tv_ for Apple TV screenshots (if available)
+ * - product_media_watch_ for Apple Watch screenshots (if available)
+ *
+ * Each screenshot includes a URL template with placeholders and original dimensions,
+ * allowing us to construct the highest resolution URL available.
  *
  * ⚠️ IMPORTANT: Apple may change the App Store's internal structure at any time. This helper
- * is designed to fail gracefully if the structure changes, with multiple fallback paths and
- * comprehensive error handling to minimize disruption.
+ * is designed to fail gracefully if the structure changes, with comprehensive error handling
+ * to minimize disruption.
  *
- * @param html App Store HTML content containing shoebox JSON
+ * @param html App Store HTML content containing serialized-server-data JSON
  * @returns Array of screenshot information objects, empty array if parsing fails
- *
- * @see {@link https://github.com/your-repo/ios-apps/blob/main/__tests__/scraper.test.ts} for comprehensive tests
  */
 export function extractScreenshotsFromShoeboxJson(html: string): ScreenshotInfo[] {
   const screenshots: ScreenshotInfo[] = [];
 
   try {
-    // STEP 1: Extract the shoebox JSON from the HTML
-    // The shoebox data is embedded in a script tag with a specific ID
-    const shoeboxRegex =
-      /<script type="fastboot\/shoebox" id="shoebox-media-api-cache-apps"[^>]*>([\s\S]*?)<\/script>/i;
-    const shoeboxMatch = html.match(shoeboxRegex);
+    // STEP 1: Extract the serialized-server-data JSON from the HTML
+    const serverDataRegex = /<script type="application\/json" id="serialized-server-data">([\s\S]*?)<\/script>/i;
+    const serverDataMatch = html.match(serverDataRegex);
 
-    if (!shoeboxMatch || !shoeboxMatch[1]) {
-      logger.log(`[Scraper] No shoebox JSON found in HTML`);
+    if (!serverDataMatch || !serverDataMatch[1]) {
+      logger.log(`[Scraper] No serialized-server-data JSON found in HTML`);
       return screenshots;
     }
 
-    // STEP 2: Parse the outer JSON structure
-    let outerJsonData;
+    // STEP 2: Parse the JSON structure
+    let serverData: Array<{ intent?: unknown; data?: { shelfMapping?: ShelfMapping } }>;
     try {
-      const jsonContent = shoeboxMatch[1].trim();
-      outerJsonData = JSON.parse(jsonContent);
+      const jsonContent = serverDataMatch[1].trim();
+      serverData = JSON.parse(jsonContent);
 
-      // Validate that we have a proper JSON object
-      if (!outerJsonData || typeof outerJsonData !== "object") {
-        logger.log(`[Scraper] Invalid JSON data in shoebox: not an object`);
+      // Validate that we have a proper array
+      if (!Array.isArray(serverData) || serverData.length === 0) {
+        logger.log(`[Scraper] Invalid JSON data in serialized-server-data: not an array or empty`);
         return screenshots;
       }
     } catch (error) {
-      logger.error(`[Scraper] Error parsing shoebox JSON content:`, error);
+      logger.error(`[Scraper] Error parsing serialized-server-data JSON content:`, error);
       return screenshots;
     }
 
-    // STEP 3: Define device type to platform mapping
-    // This mapping is based on actual App Store device identifiers observed in shoebox data.
-    // ⚠️ These identifiers may change if Apple updates their internal naming conventions.
-    // 📊 Data source: Audited 5 real Shoebox JSON fixtures (Instagram, Netflix, Spotify, Word, YouTubeTV)
-    //     and found 20 unique deviceType keys across all fixtures.
-    const deviceTypeToPlatform: Record<string, PlatformType> = {
-      // iPhone models - based on actual App Store identifiers found in fixtures
-      iphone: "iPhone", // Found in: Netflix
-      iphone5: "iPhone", // Found in: Instagram, Netflix
-      iphone6: "iPhone", // Found in: Netflix
-      "iphone6+": "iPhone", // Found in: Instagram, Netflix, Spotify, Word, YouTubeTV
-      iphone_5_8: "iPhone", // Found in: Netflix
-      iphone_6_5: "iPhone", // Found in: Instagram, Netflix, Spotify, Word, YouTubeTV
-      iphone_d73: "iPhone", // Found in: Netflix
-      iphone_d74: "iPhone", // Found in: Instagram, Netflix, Spotify, Word, YouTubeTV
+    // STEP 3: Extract shelf mapping with screenshot data
+    const shelfMapping = serverData[0]?.data?.shelfMapping;
+    if (!shelfMapping) {
+      logger.log(`[Scraper] No shelfMapping found in serialized-server-data`);
+      return screenshots;
+    }
 
-      // iPad models - based on actual App Store identifiers found in fixtures
-      ipad: "iPad", // Found in: Instagram, Netflix
-      ipad_10_5: "iPad", // Found in: Instagram, Netflix
-      ipad_11: "iPad", // Found in: Netflix
-      ipadPro: "iPad", // Found in: Instagram, Netflix, Spotify, Word, YouTubeTV
-      ipadPro_2018: "iPad", // Found in: Instagram, Netflix, Spotify, Word, YouTubeTV
-
-      // Apple TV models - based on actual App Store identifiers found in fixtures
-      appleTV: "AppleTV", // Found in: Instagram, Netflix, Spotify, YouTubeTV
-
-      // Apple Watch models - based on actual App Store identifiers found in fixtures
-      appleWatch: "AppleWatch", // Found in: Spotify, Word
-      appleWatch_2018: "AppleWatch", // Found in: Spotify, YouTubeTV
-      appleWatch_2021: "AppleWatch", // Found in: Instagram, Spotify, Word, YouTubeTV
-      appleWatch_2022: "AppleWatch", // Found in: Spotify
-
-      // Vision Pro - based on actual App Store identifiers found in fixtures
-      appleVisionPro: "VisionPro", // Found in: Netflix, Word, YouTubeTV
-
-      // Mac - based on actual App Store identifiers found in fixtures
-      mac: "Mac", // Found in: Netflix, Word
-
-      // Legacy/fallback mappings for compatibility
-      // These weren't found in current fixtures but may exist in other apps
-      iphone_5_5: "iPhone",
-      iphone_6_1: "iPhone",
-      iphone_6_7: "iPhone",
-      ipadpro: "iPad", // Lowercase variant
-      ipadpro_2018: "iPad", // Lowercase variant
-      ipad_pro: "iPad",
-      ipad_pro_129: "iPad",
-      ipad_pro_11: "iPad",
-      ipad_air: "iPad",
-      ipad_mini: "iPad",
-      appletv: "AppleTV", // Lowercase variant
-      apple_tv: "AppleTV",
-      tv: "AppleTV",
-      applewatch: "AppleWatch", // Lowercase variant
-      apple_watch: "AppleWatch",
-      watch: "AppleWatch",
-      applevision: "VisionPro",
-      visionpro: "VisionPro", // Lowercase variant
-      vision: "VisionPro",
-      macbook: "Mac",
-      imac: "Mac",
+    // STEP 4: Define platform key to platform type mapping
+    const platformKeyToPlatform: Record<string, PlatformType> = {
+      product_media_phone_: "iPhone",
+      product_media_pad_: "iPad",
+      product_media_mac_: "Mac",
+      product_media_vision_: "VisionPro",
+      product_media_tv_: "AppleTV",
+      product_media_watch_: "AppleWatch",
     };
 
-    // STEP 4: Process each entry in the outer JSON
-    // The outer JSON contains multiple keys, each potentially holding app data
+    // STEP 5: Process each platform's screenshots
     let index = 0;
-    const allScreenshotsByType: Record<string, RawScreenshotData[]>[] = [];
+    for (const [platformKey, platformType] of Object.entries(platformKeyToPlatform)) {
+      const platformMedia = shelfMapping[platformKey] as PlatformMediaSection | undefined;
 
-    for (const [key, value] of Object.entries(outerJsonData)) {
-      let innerObject;
-
-      // Handle both string and object values - some values are double-encoded JSON strings
-      if (typeof value === "string") {
-        try {
-          innerObject = JSON.parse(value);
-        } catch (error) {
-          logger.log(`[Scraper] Failed to parse inner JSON for key ${key}:`, error);
-          continue;
-        }
-      } else {
-        innerObject = value;
-      }
-
-      // STEP 5: Navigate the complex nested structure to find screenshot data
-      // Path: d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType
-      // This path structure is based on observed App Store data and may change in future updates
-      if (!innerObject || !innerObject.d || !innerObject.d[0] || !innerObject.d[0].attributes) {
+      if (!platformMedia || !platformMedia.items || platformMedia.items.length === 0) {
+        logger.log(`[Scraper] No screenshots found for ${platformType} (${platformKey})`);
         continue;
       }
 
-      const appAttributes = innerObject.d[0].attributes;
+      logger.log(`[Scraper] Processing ${platformMedia.items.length} screenshots for ${platformType}`);
 
-      // Try platform-specific attributes first (primary path)
-      if (appAttributes.platformAttributes) {
-        for (const [platform, platformData] of Object.entries(appAttributes.platformAttributes)) {
-          // Safely check if platformData has the expected structure
-          if (
-            platformData &&
-            typeof platformData === "object" &&
-            platformData !== null &&
-            "customAttributes" in platformData
-          ) {
-            const typedPlatformData = platformData as PlatformData; // Type assertion for deep property access
-            if (
-              typedPlatformData.customAttributes &&
-              typedPlatformData.customAttributes.default &&
-              typedPlatformData.customAttributes.default.default &&
-              typedPlatformData.customAttributes.default.default.customScreenshotsByType
-            ) {
-              // Found screenshot data in platform-specific attributes
-              allScreenshotsByType.push(typedPlatformData.customAttributes.default.default.customScreenshotsByType);
-              logger.log(`[Scraper] Found screenshots in ${platform} platformAttributes`);
-            }
-          }
-        }
-      }
-
-      // Fallback: Check main customAttributes if platform-specific paths fail
-      // This provides resilience if Apple changes the structure
-      if (
-        appAttributes.customAttributes &&
-        appAttributes.customAttributes.default &&
-        appAttributes.customAttributes.default.default &&
-        appAttributes.customAttributes.default.default.customScreenshotsByType
-      ) {
-        allScreenshotsByType.push(appAttributes.customAttributes.default.default.customScreenshotsByType);
-        logger.log(`[Scraper] Found screenshots in main customAttributes`);
-      }
-    }
-
-    // Early exit if no screenshot data was found
-    if (allScreenshotsByType.length === 0) {
-      logger.log(`[Scraper] No screenshot data found in any location`);
-      return screenshots;
-    }
-
-    // STEP 6: Process all collected screenshot dictionaries
-    // Transform device types to platform types and collect screenshot URLs
-
-    // Process regular screenshots from customScreenshotsByType
-    for (const screenshotsByType of allScreenshotsByType) {
-      for (const [deviceType, screenshotsArray] of Object.entries(screenshotsByType)) {
-        // Map Apple's internal device identifiers to our platform types using exact key lookup
-        const platformType = deviceTypeToPlatform[deviceType];
-
-        // Skip unknown device types and log them
-        if (!platformType) {
-          logger.log(`[Scraper] Skipping unknown device type: ${deviceType}`);
+      // Process each screenshot item
+      for (const item of platformMedia.items) {
+        if (!item.screenshot || !item.screenshot.template) {
+          logger.log(`[Scraper] Skipping item with missing screenshot or template`);
           continue;
         }
 
-        logger.log(`[Scraper] Processing ${deviceType} screenshots, mapped to platform: ${platformType}`);
+        const artwork = item.screenshot;
 
-        // Process each screenshot URL for this device type
-        if (Array.isArray(screenshotsArray)) {
-          screenshotsArray.forEach((screenshot) => {
-            if (screenshot && screenshot.url) {
-              screenshots.push({
-                url: getHighestResolutionUrl(screenshot.url, platformType), // Transform to platform-specific highest resolution
-                type: platformType,
-                index: index++, // Maintain sequential ordering
-              });
-            }
-          });
-        }
+        // Build the highest resolution URL from the template
+        const highResUrl = buildHighResolutionUrl(artwork.template, artwork.width, artwork.height);
+
+        screenshots.push({
+          url: highResUrl,
+          type: platformType,
+          index: index++,
+        });
+
+        logger.log(
+          `[Scraper] Added ${platformType} screenshot ${index}: ${artwork.width}x${artwork.height} -> ${highResUrl.substring(0, 100)}...`,
+        );
       }
     }
 
-    logger.log(`[Scraper] Extracted ${screenshots.length} screenshots from shoebox JSON`);
+    logger.log(`[Scraper] Extracted ${screenshots.length} screenshots from serialized-server-data JSON`);
   } catch (error) {
-    logger.error(`[Scraper] Error parsing shoebox JSON:`, error);
+    logger.error(`[Scraper] Error parsing serialized-server-data JSON:`, error);
     // Return any screenshots we may have found before the error
     return screenshots;
   }
