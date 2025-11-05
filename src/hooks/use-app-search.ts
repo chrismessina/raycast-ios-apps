@@ -85,8 +85,10 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
       setApps(uniqueApps);
       setTotalResults(uniqueApps.length);
 
-      // Only add to recent searches after successful search with results
-      await addSearch(query);
+      // Only add to recent searches after successful search with results and minimum length
+      if (query.length >= 3) {
+        await addSearch(query);
+      }
     } catch (err) {
       handleSearchError(err);
     } finally {

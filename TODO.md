@@ -21,4 +21,4 @@
   - [X] Add ability to export starred list to markdown
   - [X] Add ability to export starred list to CSV  
 - [ ] Refactor simultaneous download handling (ensure that it works correctly given Raycast limitations)
-- [ ] Improve app renaming algorithm to remove extraneous information OR allow setting custom file mask
+- [X] Improve app renaming algorithm to remove extraneous information OR allow setting custom file mask

@@ -79,6 +79,34 @@ export function formatAppName(name: string): string {
 }
 
 /**
+ * Clean app names by removing marketing terms and extraneous content
+ * Used for generating clean filenames for downloaded IPA files
+ * Examples:
+ *   "Shazam- Find Music & Concerts" -> "Shazam"
+ *   "Perplexity - AI Search & Chat" -> "Perplexity"
+ *   "Oura" -> "Oura"
+ */
+export function cleanAppNameForFilename(appName: string): string {
+  if (!appName) return appName;
+
+  // Remove common marketing suffixes after ' - ' or ' – ' (em-dash)
+  let cleaned = appName.replace(/\s+[-–]\s+.+$/i, "").trim();
+
+  // Remove common marketing suffixes after ' | '
+  cleaned = cleaned.replace(/\s+\|\s+.+$/i, "").trim();
+
+  // Remove trailing marketing terms in parentheses
+  cleaned = cleaned
+    .replace(
+      /\s+\([^)]*(?:app|game|tool|utility|suite|platform|service|hub|studio|pro|plus|max|lite|free|beta|alpha|test|demo|preview|edition|version|release|build|client|viewer|player|reader|editor|manager|controller|monitor|tracker|analyzer|optimizer|cleaner|booster|accelerator|enhancer|improver|helper|assistant|companion|extension|plugin|addon|module|component|widget|gadget|utility|feature|feature pack|bundle|collection|set|kit|package|suite|system|framework|engine|core|library|framework|toolkit|toolset|collection|pack|bundle|suite|family|group|series|line|range|class|category|type|kind|sort|style|variant|version|edition|format|mode|type|variant|style|theme|skin|template|preset|profile|configuration|setup|scheme|plan|tier|level|grade|rank|class|category|type|kind|sort|style|variant|version|edition|format|mode|type|variant|style|theme|skin|template|preset|profile|configuration|setup|scheme|plan|tier|level|grade|rank|class|category)\s*\)/gi,
+      "",
+    )
+    .trim();
+
+  return cleaned;
+}
+
+/**
  * Formats a date string to a more readable format
  */
 export function formatDate(dateString: string | undefined): string {

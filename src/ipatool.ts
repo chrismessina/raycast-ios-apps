@@ -1,25 +1,37 @@
+import { execFile, spawn } from "child_process";
+import fs from "fs";
+import https from "https";
+import path from "path";
+import { promisify } from "util";
+
+import AdmZip from "adm-zip";
+import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
+import { logger } from "@chrismessina/raycast-logger";
+
+import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
+import { ensureAuthenticated } from "./utils/auth";
+import { cleanAppNameForFilename } from "./utils/formatting";
+import {
+  handleAppSearchError,
+  handleAuthError,
+  handleDownloadError,
+  sanitizeQuery,
+} from "./utils/error-handler";
+import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
+import { extractFilePath, safeJsonParse } from "./utils/common";
 import {
   convertITunesResultToAppDetails,
   convertIpaToolSearchAppToAppDetails,
   fetchITunesAppDetails,
 } from "./utils/itunes-api";
-import { ensureAuthenticated } from "./utils/auth";
-import { execFile, spawn } from "child_process";
-import { extractFilePath, safeJsonParse } from "./utils/common";
-import fs from "fs";
-import path from "path";
-import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
-import { logger } from "@chrismessina/raycast-logger";
-import { promisify } from "util";
-import { showHUD, showToast, Toast, confirmAlert, Alert } from "@raycast/api";
-import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
-import { getConfig } from "./config";
-import { registerTempFile, handleProcessErrorCleanup, cleanupTempFilesByPattern } from "./utils/temp-file-manager";
+import {
+  cleanupTempFilesByPattern,
+  handleProcessErrorCleanup,
+  registerTempFile,
+} from "./utils/temp-file-manager";
 import { createSecureIpatoolProcess } from "./utils/ipatool-validator";
-import AdmZip from "adm-zip";
-import https from "https";
 
 // Retry configuration for handling transient network errors
 const MAX_RETRIES = 3; // Maximum number of retry attempts
@@ -1232,20 +1244,48 @@ export async function downloadApp(
             // Rename the file if we have app name and version and the file exists
             if (filePath && fs.existsSync(filePath) && appName && appVersion) {
               const directory = path.dirname(filePath);
+              const currentFileName = path.basename(filePath);
+
+              // Clean the app name by removing marketing terms
+              const cleanedAppName = cleanAppNameForFilename(appName);
+
               // Replace invalid filename characters with a dash
-              const sanitizedAppName = appName.replace(/[/\\?%*:|"<>]/g, "-");
+              const sanitizedAppName = cleanedAppName.replace(/[/\\?%*:|"<>]/g, "-");
               const newFileName = `${sanitizedAppName} ${appVersion}.ipa`;
               const newFilePath = path.join(directory, newFileName);
 
-              logger.log(`[ipatool] Attempting to rename file to: ${newFilePath}`);
+              logger.log(
+                `[ipatool] Attempting to rename file from: ${currentFileName} to: ${newFileName}`,
+              );
 
               try {
+                // Check if the target file already exists to avoid conflicts
+                if (fs.existsSync(newFilePath)) {
+                  logger.warn(
+                    `[ipatool] Target file already exists: ${newFilePath}. Removing old file.`,
+                  );
+                  try {
+                    fs.unlinkSync(newFilePath);
+                  } catch (unlinkError) {
+                    logger.error(`[ipatool] Failed to remove existing file: ${newFilePath}`, unlinkError);
+                    // Continue anyway and let rename fail if it will
+                  }
+                }
+
                 fs.renameSync(filePath, newFilePath);
                 logger.log(`[ipatool] Successfully renamed file to: ${newFilePath}`);
-                logger.log(`[ipatool] Download and rename complete for ${appName} v${appVersion}`);
+                logger.log(
+                  `[ipatool] Download and rename complete for ${cleanedAppName} v${appVersion}`,
+                );
                 filePath = newFilePath;
               } catch (e) {
-                logger.error("Error renaming file:", e);
+                logger.error(
+                  `[ipatool] Error renaming file from ${currentFileName} to ${newFileName}:`,
+                  e,
+                );
+                logger.log(
+                  `[ipatool] Continuing with original file path: ${filePath}`,
+                );
                 // Continue with the original file path if rename fails
               }
             }

@@ -1,6 +1,6 @@
 import { Icon, List, ActionPanel, Action, Color } from "@raycast/api";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { formatDate, formatFriendlyDateTime } from "./utils/formatting";
+import { formatDate, formatFriendlyDateTime, cleanAppNameForFilename } from "./utils/formatting";
 import { useAppDownload, useFavoriteApps, useDownloadHistory, useLatestVersions } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import type { DownloadHistoryItem } from "./utils/storage";
@@ -113,7 +113,7 @@ export default function DownloadHistory() {
       return (
         <List.Item
           key={itemKey}
-          title={app.name}
+          title={cleanAppNameForFilename(app.name)}
           accessories={[
             { text: friendlyDate, tooltip: "Last downloaded " + formatDate(item.downloadDate) },
             { text: downloadCountText, tooltip: downloadCountTooltip },
