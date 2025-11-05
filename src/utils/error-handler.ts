@@ -3,7 +3,7 @@ import { showToast, Toast, openExtensionPreferences, open } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { logger } from "@chrismessina/raycast-logger";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
-import { loginToAppleId, NeedsLoginError, Needs2FAError } from "./auth";
+import { loginToAppleId, NeedsLoginError, Needs2FAError, invalidateAuthentication } from "./auth";
 
 /**
  * Sanitize query strings to remove potentially sensitive information before logging
@@ -133,6 +133,9 @@ export async function handleToolError(
  * @param stderr Optional stderr content from the process
  * @param operationContext Optional context about what operation was being performed
  * @param shouldThrow Whether to throw the error after logging and showing toast (default: true)
+ * @param pushLoginForm Optional function to push login form for inline auth
+ * @param push2FAForm Optional function to push 2FA form for inline auth
+ * @param onAuthSuccess Optional callback after successful authentication
  */
 export async function handleIpatoolError(
   error: unknown,
@@ -140,6 +143,9 @@ export async function handleIpatoolError(
   stderr?: string,
   operationContext?: "auth" | "download" | "search",
   shouldThrow: boolean = true,
+  pushLoginForm?: (onSuccess?: () => void) => void,
+  push2FAForm?: (onSuccess?: () => void) => void,
+  onAuthSuccess?: () => void,
 ): Promise<void> {
   const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -148,7 +154,7 @@ export async function handleIpatoolError(
 
   // Use the appropriate handler based on error type
   if (analysis.isAuthError) {
-    await handleAuthError(error, shouldThrow);
+    await handleAuthError(error, shouldThrow, true, undefined, pushLoginForm, push2FAForm, onAuthSuccess);
   } else {
     // Use the enhanced error handling with suggested actions
     await handleToolError(error, context, analysis.userMessage, shouldThrow, analysis.suggestedAction);
@@ -215,7 +221,9 @@ export async function handleAuthError(
     lowerErrorMessage.includes("authentication failed") ||
     lowerErrorMessage.includes("invalid credentials") ||
     lowerErrorMessage.includes("login failed") ||
-    lowerErrorMessage.includes("please provide apple id");
+    lowerErrorMessage.includes("please provide apple id") ||
+    lowerErrorMessage.includes("sign in to the itunes store") ||
+    lowerErrorMessage.includes("authentication required");
 
   const is2FARequired =
     isNeeds2FAError ||
@@ -225,6 +233,13 @@ export async function handleAuthError(
 
   const userMessage = "Authentication failed";
   const toastTitle = "Authentication Error";
+
+  // Invalidate stored credentials when we detect credential errors
+  // This ensures the user will be prompted to sign in again on next download attempt
+  if (isCredentialError) {
+    logger.log("[authentication] Invalidating stored credentials due to auth error");
+    await invalidateAuthentication();
+  }
 
   if (isCredentialError && pushLoginForm) {
     await showToast({

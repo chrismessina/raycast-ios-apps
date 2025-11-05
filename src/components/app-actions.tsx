@@ -1,4 +1,4 @@
-import { ActionPanel, Action, Icon } from "@raycast/api";
+import { ActionPanel, Action, Icon, Keyboard } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
@@ -97,7 +97,7 @@ export function AppActions({
           title="View in App Store"
           icon={Icon.AppWindow}
           url={appStoreUrl}
-          shortcut={{ modifiers: ["cmd"], key: "o" }}
+          shortcut={Keyboard.Shortcut.Common.Open}
         />
       )}
       {app.artistViewUrl && <Action.OpenInBrowser title="View Developer" icon={Icon.Person} url={app.artistViewUrl} />}

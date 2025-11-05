@@ -49,7 +49,7 @@ export default function Search() {
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
 
   // Download handler
-  const handleDownload = async (app: typeof apps[0]) => {
+  const handleDownload = async (app: (typeof apps)[0]) => {
     return await downloadApp(
       app.bundleId,
       app.name,

@@ -97,14 +97,17 @@ export function analyzeIpatoolError(
     fullMessage.includes("authentication failed") ||
     fullMessage.includes("invalid credentials") ||
     fullMessage.includes("unauthorized") ||
-    fullMessage.includes("sign in failed")
+    fullMessage.includes("sign in failed") ||
+    fullMessage.includes("sign in to the itunes store") ||
+    fullMessage.includes("please sign in") ||
+    fullMessage.includes("not authenticated")
   ) {
     return {
       isAuthError: true,
       is2FARequired: false,
       isCredentialError: true,
       isLicenseRequired: false,
-      userMessage: "Invalid Apple ID credentials. Please check your email and password in preferences.",
+      userMessage: "Authentication required. Please sign in with your Apple ID.",
       errorType: "credentials",
     };
   }

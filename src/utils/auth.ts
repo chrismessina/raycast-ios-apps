@@ -113,6 +113,15 @@ export async function clearStoredCredentials(): Promise<void> {
 }
 
 /**
+ * Invalidate authentication by clearing stored credentials
+ * This should be called when authentication errors occur to force re-authentication
+ */
+export async function invalidateAuthentication(): Promise<void> {
+  logger.log("Invalidating authentication - clearing stored credentials");
+  await clearStoredCredentials();
+}
+
+/**
  * Secure wrapper for executing ipatool commands with error handling
  */
 async function executeSecureIpatoolCommand(args: string[]): Promise<{ stdout: string; stderr: string }> {

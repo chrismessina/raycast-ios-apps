@@ -2,7 +2,7 @@ import { downloadApp, searchApps } from "../ipatool";
 import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
 import { Tool, showToast, Toast, Clipboard, showInFinder } from "@raycast/api";
-import { handleAppSearchError, handleDownloadError, handleAuthError, sanitizeQuery } from "../utils/error-handler";
+import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 
 // Constants
@@ -139,18 +139,16 @@ export default async function downloadIosApp(input: Input) {
     } catch (downloadError) {
       logger.error(`[download-app tool] Download error for "${appName}":`, downloadError);
 
-      // Analyze error to determine auth vs other failures and handle consistently
+      // Use the intelligent error handler which will detect auth errors and invalidate credentials
+      await handleIpatoolError(downloadError, "download-app tool", undefined, "download", false);
+
+      // Analyze error to determine the return message
       const errorMessage = downloadError instanceof Error ? downloadError.message : String(downloadError);
       const errorInfo = analyzeIpatoolError(errorMessage, undefined, "download");
 
       if (errorInfo.isAuthError) {
-        // Show preferences action for auth in tool context
-        await handleAuthError(new Error(errorInfo.userMessage), false, true);
         return { success: false, message: "Authentication failed" };
       }
-
-      // Non-auth errors: show specific failure toast
-      await handleDownloadError(new Error(errorInfo.userMessage), "download app", "download-app");
 
       if (errorInfo.errorType === "app_not_found") {
         return { success: false, message: "App not found" };
