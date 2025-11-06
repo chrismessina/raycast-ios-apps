@@ -17,7 +17,7 @@ export default function DownloadHistory() {
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
-  const { downloadHistory, removeFromHistory, clearHistory, isLoading } = useDownloadHistory(100);
+  const { downloadHistory, removeFromHistory, clearHistory, refresh, isLoading } = useDownloadHistory(100);
 
   // Get bundle IDs for version checking - include refreshKey to force re-fetch
   const bundleIds = useMemo(() => downloadHistory.map((item) => item.app.bundleId), [downloadHistory, refreshKey]);
@@ -154,6 +154,9 @@ export default function DownloadHistory() {
                     updatedApp,
                   );
 
+                  // Refresh download history to update counts and versions
+                  await refresh();
+                  
                   // Trigger a refresh of latest versions after download completes
                   setRefreshKey((prev) => prev + 1);
                 }}
@@ -190,7 +193,7 @@ export default function DownloadHistory() {
         />
       );
     },
-    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory],
+    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory, refresh],
   );
 
   return (

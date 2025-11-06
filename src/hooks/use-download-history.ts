@@ -23,6 +23,7 @@ interface UseDownloadHistoryResult {
   removeFromHistory: (bundleId: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   getDownloadCount: (bundleId: string) => number;
+  refresh: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -36,32 +37,34 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   const [downloadCounts, setDownloadCounts] = useState<DownloadCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Function to load data from LocalStorage
+  const loadData = useCallback(async () => {
+    try {
+      const [historyStored, countsStored] = await Promise.all([
+        LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_HISTORY),
+        LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_COUNTS),
+      ]);
+
+      if (historyStored) {
+        const history: DownloadHistoryItem[] = JSON.parse(historyStored);
+        setDownloadHistory(history);
+      }
+
+      if (countsStored) {
+        const counts: DownloadCount[] = JSON.parse(countsStored);
+        setDownloadCounts(counts);
+      }
+    } catch (error) {
+      console.error("Error loading download data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   // Load download history and counts on mount
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [historyStored, countsStored] = await Promise.all([
-          LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_HISTORY),
-          LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_COUNTS),
-        ]);
-
-        if (historyStored) {
-          const history: DownloadHistoryItem[] = JSON.parse(historyStored);
-          setDownloadHistory(history);
-        }
-
-        if (countsStored) {
-          const counts: DownloadCount[] = JSON.parse(countsStored);
-          setDownloadCounts(counts);
-        }
-      } catch (error) {
-        console.error("Error loading download data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Persist history to LocalStorage
   const persistHistory = useCallback(async (history: DownloadHistoryItem[]) => {
@@ -231,6 +234,7 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
     removeFromHistory,
     clearHistory,
     getDownloadCount,
+    refresh: loadData,
     isLoading,
   };
 }
