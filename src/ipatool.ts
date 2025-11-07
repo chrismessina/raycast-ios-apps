@@ -987,10 +987,15 @@ export async function downloadApp(
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 // Resolve with the retry result to properly propagate the Promise chain
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
-                    ...options,
-                    expectedSizeBytes, // Preserve expected size for progress tracking
-                  }),
+                  await downloadApp(
+                    bundleId,
+                    appName,
+                    appVersion,
+                    price,
+                    nextRetryCount,
+                    nextRetryDelay,
+                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
+                  ),
                 );
                 return;
               }
@@ -1012,10 +1017,15 @@ export async function downloadApp(
                 }
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
-                    ...options,
-                    expectedSizeBytes, // Preserve expected size for progress tracking
-                  }),
+                  await downloadApp(
+                    bundleId,
+                    appName,
+                    appVersion,
+                    price,
+                    nextRetryCount,
+                    nextRetryDelay,
+                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
+                  ),
                 );
                 return;
               }
@@ -1044,10 +1054,15 @@ export async function downloadApp(
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, baseDelay));
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
-                    ...options,
-                    expectedSizeBytes, // Preserve expected size for progress tracking
-                  }),
+                  await downloadApp(
+                    bundleId,
+                    appName,
+                    appVersion,
+                    price,
+                    nextRetryCount,
+                    nextRetryDelay,
+                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
+                  ),
                 );
                 return;
               }
@@ -1100,10 +1115,15 @@ export async function downloadApp(
 
                       // Retry the download after successful license purchase
                       resolve(
-                        await downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, {
-                          ...options,
-                          expectedSizeBytes, // Preserve expected size for progress tracking
-                        }),
+                        await downloadApp(
+                          bundleId,
+                          appName,
+                          appVersion,
+                          price,
+                          0,
+                          INITIAL_RETRY_DELAY,
+                          options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
+                        ),
                       );
                       return;
                     } else {
@@ -1265,10 +1285,15 @@ export async function downloadApp(
 
                   // Retry with retryCount = 1 to prevent infinite retry loop
                   resolve(
-                    await downloadApp(bundleId, appName, appVersion, price, 1, INITIAL_RETRY_DELAY, {
-                      ...options,
-                      expectedSizeBytes, // Preserve expected size for progress tracking
-                    }),
+                    await downloadApp(
+                      bundleId,
+                      appName,
+                      appVersion,
+                      price,
+                      1,
+                      INITIAL_RETRY_DELAY,
+                      options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
+                    ),
                   );
                   return;
                 }
@@ -1356,10 +1381,7 @@ export async function downloadApp(
                     price,
                     nextRetryCount,
                     nextRetryDelay,
-                    {
-                      ...options,
-                      expectedSizeBytes, // Preserve expected size for progress tracking
-                    },
+                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
                   );
                   resolve(result);
                 } catch (retryError) {
