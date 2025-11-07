@@ -12,12 +12,7 @@ import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import { ensureAuthenticated } from "./utils/auth";
 import { cleanAppNameForFilename } from "./utils/formatting";
-import {
-  handleAppSearchError,
-  handleAuthError,
-  handleDownloadError,
-  sanitizeQuery,
-} from "./utils/error-handler";
+import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
 import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
 import { extractFilePath, safeJsonParse } from "./utils/common";
 import {
@@ -26,11 +21,7 @@ import {
   fetchITunesAppDetails,
 } from "./utils/itunes-api";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
-import {
-  cleanupTempFilesByPattern,
-  handleProcessErrorCleanup,
-  registerTempFile,
-} from "./utils/temp-file-manager";
+import { cleanupTempFilesByPattern, handleProcessErrorCleanup, registerTempFile } from "./utils/temp-file-manager";
 import { createSecureIpatoolProcess } from "./utils/ipatool-validator";
 
 // Retry configuration for handling transient network errors
@@ -738,7 +729,11 @@ export async function downloadApp(
 
     // Get expected file size for progress tracking
     // Use provided size or fetch from iTunes API as fallback (only on initial attempt to avoid duplicate calls)
-    let expectedSizeBytes: number | undefined = retryCount === 0 ? options?.expectedSizeBytes : undefined;
+    let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
+
+    logger.log(
+      `[ipatool] Download params - retryCount: ${retryCount}, provided expectedSizeBytes: ${expectedSizeBytes}, suppressHUD: ${options?.suppressHUD}, hasOnProgress: ${Boolean(options?.onProgress)}`,
+    );
 
     if (!expectedSizeBytes && retryCount === 0) {
       try {
@@ -756,6 +751,10 @@ export async function downloadApp(
       logger.log(
         `[ipatool] Using provided expected app size for progress tracking: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
       );
+    }
+
+    if (!expectedSizeBytes) {
+      logger.warn(`[ipatool] No expected size available - progress tracking will be disabled`);
     }
 
     // Show initial HUD with retry information if applicable
@@ -794,9 +793,11 @@ export async function downloadApp(
 
       logger.log(`[ipatool] Executing download command: ${IPATOOL_PATH} ${args.join(" ")}`);
 
-      // Prepare a temp file path and register it
-      const tempFilePath = path.join(downloadsDir, `${bundleId}.ipa.partial`);
-      registerTempFile(tempFilePath);
+      // IPATool downloads to ${bundleId}_${adamId}_${version}.ipa, but we don't know adamId yet
+      // We'll search for any file starting with bundleId in the progress tracking
+      // Register a pattern for cleanup
+      const downloadFilePattern = `${bundleId}*.ipa`;
+      registerTempFile(path.join(downloadsDir, downloadFilePattern));
 
       // Create secure spawn process with timeout management
       const { maxDownloadTimeout, maxStallTimeout } = getConfig();
@@ -823,47 +824,66 @@ export async function downloadApp(
           };
 
           // Progress tracking via file size monitoring
+          logger.log(
+            `[ipatool] Starting progress tracking interval. expectedSizeBytes: ${expectedSizeBytes}, bundleId: ${bundleId}`,
+          );
+
           const progressCheckInterval = setInterval(() => {
             if (!expectedSizeBytes || expectedSizeBytes === 0) {
+              logger.log(
+                `[ipatool] Progress check skipped - no expected size (expectedSizeBytes: ${expectedSizeBytes})`,
+              );
               return; // Can't calculate progress without expected size
             }
 
             try {
-              // Check the size of the partial file being downloaded
-              const partialFilePath = path.join(downloadsDir, `${bundleId}.ipa.partial`);
-              if (fs.existsSync(partialFilePath)) {
-                const stats = fs.statSync(partialFilePath);
+              // IPATool downloads to ${bundleId}_${adamId}_${version}.ipa
+              // Find any .ipa file in downloads dir that starts with bundleId
+              let downloadFilePath: string | null = null;
+              const files = fs.readdirSync(downloadsDir);
+              for (const file of files) {
+                if (file.startsWith(bundleId) && file.endsWith(".ipa")) {
+                  downloadFilePath = path.join(downloadsDir, file);
+                  break;
+                }
+              }
+
+              const fileExists = downloadFilePath !== null;
+
+              if (fileExists && downloadFilePath) {
+                const stats = fs.statSync(downloadFilePath);
                 const currentSize = stats.size;
 
-                // Only report progress if file size has changed significantly
-                if (currentSize > lastReportedSize + 1024 * 1024 || currentSize === expectedSizeBytes) {
+                // Only report progress if file size has changed significantly (every 512KB or at completion)
+                // Using 512KB threshold to catch progress on faster downloads
+                const shouldReport = currentSize > lastReportedSize + 512 * 1024 || currentSize === expectedSizeBytes;
+
+                if (shouldReport) {
                   const progress = Math.min(currentSize / expectedSizeBytes, 1.0);
 
                   if (progress > lastProgress) {
                     lastProgress = progress;
                     resetStallTimer(); // Reset stall timer on progress
 
-                    // Call progress callback if provided
+                    // Call progress callback if provided (callback will handle logging)
                     if (options?.onProgress) {
                       options.onProgress(progress);
                     }
 
+                    // Update HUD if not suppressed (when no callback is used)
                     if (!suppressHUD) {
                       const progressPercent = Math.round(progress * 100);
                       showHUD(`Downloading ${appName || bundleId}... ${progressPercent}%`);
                     }
 
                     lastReportedSize = currentSize;
-                    logger.log(
-                      `[ipatool] Download progress: ${Math.ceil(currentSize / BYTES_PER_MB)}/${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB (${Math.round(progress * 100)}%)`,
-                    );
                   }
                 }
               }
             } catch (error) {
               logger.warn(`[ipatool] Error checking download progress:`, error);
             }
-          }, 500); // Check every 500ms
+          }, 250); // Check every 250ms for more responsive progress updates
 
           resetStallTimer(); // Initialize stall timer
 
@@ -967,7 +987,10 @@ export async function downloadApp(
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 // Resolve with the retry result to properly propagate the Promise chain
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
+                    ...options,
+                    expectedSizeBytes, // Preserve expected size for progress tracking
+                  }),
                 );
                 return;
               }
@@ -989,7 +1012,10 @@ export async function downloadApp(
                 }
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
+                    ...options,
+                    expectedSizeBytes, // Preserve expected size for progress tracking
+                  }),
                 );
                 return;
               }
@@ -1018,7 +1044,10 @@ export async function downloadApp(
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, baseDelay));
                 resolve(
-                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, options),
+                  await downloadApp(bundleId, appName, appVersion, price, nextRetryCount, nextRetryDelay, {
+                    ...options,
+                    expectedSizeBytes, // Preserve expected size for progress tracking
+                  }),
                 );
                 return;
               }
@@ -1070,7 +1099,12 @@ export async function downloadApp(
                       }
 
                       // Retry the download after successful license purchase
-                      resolve(await downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, options));
+                      resolve(
+                        await downloadApp(bundleId, appName, appVersion, price, 0, INITIAL_RETRY_DELAY, {
+                          ...options,
+                          expectedSizeBytes, // Preserve expected size for progress tracking
+                        }),
+                      );
                       return;
                     } else {
                       logger.log(
@@ -1230,7 +1264,12 @@ export async function downloadApp(
                   await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 2000));
 
                   // Retry with retryCount = 1 to prevent infinite retry loop
-                  resolve(await downloadApp(bundleId, appName, appVersion, price, 1, INITIAL_RETRY_DELAY, options));
+                  resolve(
+                    await downloadApp(bundleId, appName, appVersion, price, 1, INITIAL_RETRY_DELAY, {
+                      ...options,
+                      expectedSizeBytes, // Preserve expected size for progress tracking
+                    }),
+                  );
                   return;
                 }
 
@@ -1254,16 +1293,12 @@ export async function downloadApp(
               const newFileName = `${sanitizedAppName} ${appVersion}.ipa`;
               const newFilePath = path.join(directory, newFileName);
 
-              logger.log(
-                `[ipatool] Attempting to rename file from: ${currentFileName} to: ${newFileName}`,
-              );
+              logger.log(`[ipatool] Attempting to rename file from: ${currentFileName} to: ${newFileName}`);
 
               try {
                 // Check if the target file already exists to avoid conflicts
                 if (fs.existsSync(newFilePath)) {
-                  logger.warn(
-                    `[ipatool] Target file already exists: ${newFilePath}. Removing old file.`,
-                  );
+                  logger.warn(`[ipatool] Target file already exists: ${newFilePath}. Removing old file.`);
                   try {
                     fs.unlinkSync(newFilePath);
                   } catch (unlinkError) {
@@ -1274,18 +1309,11 @@ export async function downloadApp(
 
                 fs.renameSync(filePath, newFilePath);
                 logger.log(`[ipatool] Successfully renamed file to: ${newFilePath}`);
-                logger.log(
-                  `[ipatool] Download and rename complete for ${cleanedAppName} v${appVersion}`,
-                );
+                logger.log(`[ipatool] Download and rename complete for ${cleanedAppName} v${appVersion}`);
                 filePath = newFilePath;
               } catch (e) {
-                logger.error(
-                  `[ipatool] Error renaming file from ${currentFileName} to ${newFileName}:`,
-                  e,
-                );
-                logger.log(
-                  `[ipatool] Continuing with original file path: ${filePath}`,
-                );
+                logger.error(`[ipatool] Error renaming file from ${currentFileName} to ${newFileName}:`, e);
+                logger.log(`[ipatool] Continuing with original file path: ${filePath}`);
                 // Continue with the original file path if rename fails
               }
             }
@@ -1328,7 +1356,10 @@ export async function downloadApp(
                     price,
                     nextRetryCount,
                     nextRetryDelay,
-                    options,
+                    {
+                      ...options,
+                      expectedSizeBytes, // Preserve expected size for progress tracking
+                    },
                   );
                   resolve(result);
                 } catch (retryError) {

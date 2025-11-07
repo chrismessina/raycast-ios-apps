@@ -156,7 +156,7 @@ export default function DownloadHistory() {
 
                   // Refresh download history to update counts and versions
                   await refresh();
-                  
+
                   // Trigger a refresh of latest versions after download completes
                   setRefreshKey((prev) => prev + 1);
                 }}
