@@ -34,14 +34,15 @@ const versionCache = new Map<string, CacheEntry>();
 export function useLatestVersions(bundleIds: string[], skipCache = false): UseLatestVersionsResult {
   const [latestVersions, setLatestVersions] = useState<Map<string, LatestVersionInfo>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Function to force refresh by clearing cache
   const forceRefresh = useCallback(() => {
     bundleIds.forEach((bundleId) => {
       versionCache.delete(bundleId);
     });
-    // Trigger a re-fetch by updating state
-    setLatestVersions(new Map());
+    // Trigger a re-fetch by updating the refresh trigger
+    setRefreshTrigger((prev) => prev + 1);
   }, [bundleIds]);
 
   useEffect(() => {
@@ -174,7 +175,7 @@ export function useLatestVersions(bundleIds: string[], skipCache = false): UseLa
     return () => {
       isMounted = false;
     };
-  }, [bundleIds.join(","), skipCache]); // Use join to create stable dependency
+  }, [bundleIds.join(","), skipCache, refreshTrigger]); // Use join to create stable dependency
 
   return {
     latestVersions,
