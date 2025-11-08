@@ -89,9 +89,9 @@ export function formatAppName(name: string): string {
 export function cleanAppNameForFilename(appName: string): string {
   if (!appName) return appName;
 
-  // Remove common marketing suffixes after ' - ', '-', ' – ' (em-dash), or '–'
-  // Handles both "App - Description" and "App- Description" formats
-  let cleaned = appName.replace(/\s*[-–]\s*.+$/i, "").trim();
+  // Remove common marketing suffixes after ' - ', '-', ' – ' (em-dash), '–', ' : ', or ':'
+  // Handles formats like "App - Description", "App- Description", "App: Description", "App: Description"
+  let cleaned = appName.replace(/\s*[-–:]\s*.+$/i, "").trim();
 
   // Remove common marketing suffixes after ' | '
   cleaned = cleaned.replace(/\s+\|\s+.+$/i, "").trim();
