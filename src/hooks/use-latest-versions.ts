@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { fetchITunesAppDetails } from "../utils/itunes-api";
 import { logger } from "@chrismessina/raycast-logger";
 
@@ -9,19 +9,40 @@ export interface LatestVersionInfo {
   error: string | null;
 }
 
+interface CacheEntry {
+  data: LatestVersionInfo;
+  timestamp: number;
+}
+
 interface UseLatestVersionsResult {
   latestVersions: Map<string, LatestVersionInfo>;
   isLoading: boolean;
+  forceRefresh: () => void;
 }
+
+// Global cache with 5-minute TTL (300,000 ms)
+const CACHE_TTL = 5 * 60 * 1000;
+const versionCache = new Map<string, CacheEntry>();
 
 /**
  * Hook for fetching latest versions of multiple apps from iTunes API
+ * with 5-minute caching to reduce API calls
  * @param bundleIds Array of bundle IDs to fetch versions for
- * @returns Map of bundle IDs to their latest version information
+ * @param skipCache Optional flag to skip cache and force refresh
+ * @returns Map of bundle IDs to their latest version information and a forceRefresh function
  */
-export function useLatestVersions(bundleIds: string[]): UseLatestVersionsResult {
+export function useLatestVersions(bundleIds: string[], skipCache = false): UseLatestVersionsResult {
   const [latestVersions, setLatestVersions] = useState<Map<string, LatestVersionInfo>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
+
+  // Function to force refresh by clearing cache
+  const forceRefresh = useCallback(() => {
+    bundleIds.forEach((bundleId) => {
+      versionCache.delete(bundleId);
+    });
+    // Trigger a re-fetch by updating state
+    setLatestVersions(new Map());
+  }, [bundleIds]);
 
   useEffect(() => {
     if (bundleIds.length === 0) {
@@ -33,9 +54,44 @@ export function useLatestVersions(bundleIds: string[]): UseLatestVersionsResult 
     async function fetchLatestVersions() {
       setIsLoading(true);
 
-      // Initialize all bundle IDs with loading state
-      const initialVersions = new Map<string, LatestVersionInfo>();
+      // Check cache and separate into cached and uncached bundle IDs
+      const now = Date.now();
+      const cachedVersions = new Map<string, LatestVersionInfo>();
+      const bundleIdsToFetch: string[] = [];
+
       bundleIds.forEach((bundleId) => {
+        const cached = versionCache.get(bundleId);
+        if (!skipCache && cached && now - cached.timestamp < CACHE_TTL) {
+          // Use cached data
+          cachedVersions.set(bundleId, cached.data);
+        } else {
+          // Need to fetch
+          bundleIdsToFetch.push(bundleId);
+        }
+      });
+
+      // Set cached versions immediately
+      if (cachedVersions.size > 0) {
+        setLatestVersions((prev) => {
+          const updated = new Map(prev);
+          cachedVersions.forEach((value, key) => {
+            updated.set(key, value);
+          });
+          return updated;
+        });
+      }
+
+      // If nothing to fetch, we're done
+      if (bundleIdsToFetch.length === 0) {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // Initialize loading state for bundle IDs to fetch
+      const initialVersions = new Map<string, LatestVersionInfo>();
+      bundleIdsToFetch.forEach((bundleId) => {
         initialVersions.set(bundleId, {
           bundleId,
           latestVersion: null,
@@ -45,40 +101,61 @@ export function useLatestVersions(bundleIds: string[]): UseLatestVersionsResult 
       });
 
       if (isMounted) {
-        setLatestVersions(initialVersions);
+        setLatestVersions((prev) => {
+          const updated = new Map(prev);
+          initialVersions.forEach((value, key) => {
+            updated.set(key, value);
+          });
+          return updated;
+        });
       }
 
       // Fetch versions in parallel with rate limiting
-      const fetchPromises = bundleIds.map(async (bundleId, index) => {
+      const fetchPromises = bundleIdsToFetch.map(async (bundleId, index) => {
         // Stagger requests to avoid overwhelming the API
         await new Promise((resolve) => setTimeout(resolve, index * 150));
 
         try {
           const itunesData = await fetchITunesAppDetails(bundleId);
+          const versionInfo: LatestVersionInfo = {
+            bundleId,
+            latestVersion: itunesData?.version || null,
+            isLoading: false,
+            error: itunesData ? null : "Not found",
+          };
+
+          // Cache the result
+          versionCache.set(bundleId, {
+            data: versionInfo,
+            timestamp: Date.now(),
+          });
 
           if (isMounted) {
             setLatestVersions((prev) => {
               const updated = new Map(prev);
-              updated.set(bundleId, {
-                bundleId,
-                latestVersion: itunesData?.version || null,
-                isLoading: false,
-                error: itunesData ? null : "Not found",
-              });
+              updated.set(bundleId, versionInfo);
               return updated;
             });
           }
         } catch (error) {
           logger.error(`[useLatestVersions] Error fetching version for ${bundleId}:`, error);
+          const versionInfo: LatestVersionInfo = {
+            bundleId,
+            latestVersion: null,
+            isLoading: false,
+            error: error instanceof Error ? error.message : "Failed to fetch",
+          };
+
+          // Cache the error result too
+          versionCache.set(bundleId, {
+            data: versionInfo,
+            timestamp: Date.now(),
+          });
+
           if (isMounted) {
             setLatestVersions((prev) => {
               const updated = new Map(prev);
-              updated.set(bundleId, {
-                bundleId,
-                latestVersion: null,
-                isLoading: false,
-                error: error instanceof Error ? error.message : "Failed to fetch",
-              });
+              updated.set(bundleId, versionInfo);
               return updated;
             });
           }
@@ -97,10 +174,11 @@ export function useLatestVersions(bundleIds: string[]): UseLatestVersionsResult 
     return () => {
       isMounted = false;
     };
-  }, [bundleIds.join(",")]); // Use join to create stable dependency
+  }, [bundleIds.join(","), skipCache]); // Use join to create stable dependency
 
   return {
     latestVersions,
     isLoading,
+    forceRefresh,
   };
 }

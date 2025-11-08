@@ -12,16 +12,15 @@ export default function DownloadHistory() {
   const [filteredHistory, setFilteredHistory] = useState<DownloadHistoryItem[]>([]);
   const [searchText, setSearchText] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
   const { downloadHistory, removeFromHistory, clearHistory, refresh, isLoading } = useDownloadHistory(100);
 
-  // Get bundle IDs for version checking - include refreshKey to force re-fetch
-  const bundleIds = useMemo(() => downloadHistory.map((item) => item.app.bundleId), [downloadHistory, refreshKey]);
-  const { latestVersions } = useLatestVersions(bundleIds);
+  // Get bundle IDs for version checking
+  const bundleIds = useMemo(() => downloadHistory.map((item) => item.app.bundleId), [downloadHistory]);
+  const { latestVersions, forceRefresh } = useLatestVersions(bundleIds);
 
   // Sort and filter history
   useEffect(() => {
@@ -156,9 +155,6 @@ export default function DownloadHistory() {
 
                   // Refresh download history to update counts and versions
                   await refresh();
-
-                  // Trigger a refresh of latest versions after download completes
-                  setRefreshKey((prev) => prev + 1);
                 }}
                 icon={Icon.Download}
                 shortcut={{ modifiers: ["cmd"], key: "s" }}
@@ -213,6 +209,12 @@ export default function DownloadHistory() {
       actions={
         filteredHistory.length > 0 && (
           <ActionPanel>
+            <Action
+              title="Check for Updates"
+              onAction={forceRefresh}
+              icon={Icon.RotateClockwise}
+              shortcut={{ modifiers: ["cmd"], key: "r" }}
+            />
             <Action
               title="Clear All History"
               onAction={clearHistory}
