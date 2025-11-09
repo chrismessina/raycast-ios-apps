@@ -96,7 +96,7 @@ export default function DownloadHistory() {
       const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
       const isFavorited = isFavorite(app.bundleId);
       const friendlyDate = formatFriendlyDateTime(item.downloadDate);
-      const downloadCountText = item.downloadCount + "x";
+      const downloadCountText = item.downloadCount.toString();
       const downloadCountTooltip = "Downloaded " + item.downloadCount + " time" + (item.downloadCount !== 1 ? "s" : "");
 
       // Get latest version info
@@ -115,7 +115,7 @@ export default function DownloadHistory() {
           title={cleanAppNameForFilename(app.name)}
           accessories={[
             { text: friendlyDate, tooltip: "Last downloaded " + formatDate(item.downloadDate) },
-            { text: downloadCountText, tooltip: downloadCountTooltip },
+            { icon: { source: Icon.Download }, text: downloadCountText, tooltip: downloadCountTooltip },
             ...(hasUpdate
               ? [
                   { text: `v${app.version} →`, tooltip: versionTooltip },
