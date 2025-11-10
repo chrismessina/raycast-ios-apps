@@ -16,7 +16,7 @@ export default function DownloadHistory() {
 
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
-  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
+  const { favoriteApps, isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
   const { downloadHistory, removeFromHistory, clearHistory, refresh, isLoading } = useDownloadHistory(100);
 
   // Get bundle IDs for version checking
@@ -62,7 +62,7 @@ export default function DownloadHistory() {
     });
 
     setFilteredHistory(filtered);
-  }, [downloadHistory, searchText, sortBy, showOnlyFavorites, isFavorite]);
+  }, [downloadHistory, searchText, sortBy, showOnlyFavorites, favoriteApps, isFavorite]);
 
   // Separate apps with updates from those without
   const appsWithUpdates = useMemo(() => {
