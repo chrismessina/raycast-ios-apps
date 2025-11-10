@@ -12,6 +12,7 @@ export default function DownloadHistory() {
   const [filteredHistory, setFilteredHistory] = useState<DownloadHistoryItem[]>([]);
   const [searchText, setSearchText] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
 
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
@@ -25,6 +26,11 @@ export default function DownloadHistory() {
   // Sort and filter history
   useEffect(() => {
     let filtered = downloadHistory;
+
+    // Apply favorites filter
+    if (showOnlyFavorites) {
+      filtered = filtered.filter((item) => isFavorite(item.app.bundleId));
+    }
 
     // Apply search filter
     if (searchText) {
@@ -56,7 +62,7 @@ export default function DownloadHistory() {
     });
 
     setFilteredHistory(filtered);
-  }, [downloadHistory, searchText, sortBy]);
+  }, [downloadHistory, searchText, sortBy, showOnlyFavorites, isFavorite]);
 
   // Separate apps with updates from those without
   const appsWithUpdates = useMemo(() => {
@@ -197,13 +203,23 @@ export default function DownloadHistory() {
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search download history..."
       searchBarAccessory={
-        <List.Dropdown tooltip="Sort by" onChange={(newValue) => setSortBy(newValue as SortOption)}>
-          <List.Dropdown.Item title="Most Recent" value="recent" />
-          <List.Dropdown.Item title="Oldest First" value="oldest" />
-          <List.Dropdown.Item title="Most Downloaded" value="mostDownloaded" />
-          <List.Dropdown.Item title="Least Downloaded" value="leastDownloaded" />
-          <List.Dropdown.Item title="Name (A-Z)" value="name" />
-        </List.Dropdown>
+        <>
+          <List.Dropdown
+            tooltip="Filter"
+            value={showOnlyFavorites ? "favorites" : "all"}
+            onChange={(newValue) => setShowOnlyFavorites(newValue === "favorites")}
+          >
+            <List.Dropdown.Item title="All Apps" value="all" />
+            <List.Dropdown.Item title="Favorites Only" value="favorites" icon={Icon.Heart} />
+          </List.Dropdown>
+          <List.Dropdown tooltip="Sort by" onChange={(newValue) => setSortBy(newValue as SortOption)}>
+            <List.Dropdown.Item title="Most Recent" value="recent" />
+            <List.Dropdown.Item title="Oldest First" value="oldest" />
+            <List.Dropdown.Item title="Most Downloaded" value="mostDownloaded" />
+            <List.Dropdown.Item title="Least Downloaded" value="leastDownloaded" />
+            <List.Dropdown.Item title="Name (A-Z)" value="name" />
+          </List.Dropdown>
+        </>
       }
       actions={
         filteredHistory.length > 0 && (
