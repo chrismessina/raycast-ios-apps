@@ -1,7 +1,7 @@
-import { Icon, List, ActionPanel, Action, Color } from "@raycast/api";
+import { Icon, List, ActionPanel, Action } from "@raycast/api";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { formatDate, formatFriendlyDateTime, cleanAppNameForFilename } from "./utils/formatting";
-import { useAppDownload, useFavoriteApps, useDownloadHistory, useLatestVersions } from "./hooks";
+import { formatFriendlyDateTime, cleanAppNameForFilename } from "./utils/formatting";
+import { useAppDownload, useFavoriteApps, useDownloadHistory, useLatestVersions, useVersionAccessories } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import type { DownloadHistoryItem } from "./utils/storage";
 import AppDetailView from "./views/app-detail-view";
@@ -75,6 +75,27 @@ export default function DownloadHistory() {
     });
   }, [filteredHistory, latestVersions]);
 
+  // Pre-compute accessories for all items
+  const accessoriesMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof useVersionAccessories>>();
+    filteredHistory.forEach((item) => {
+      const latestVersionInfo = latestVersions.get(item.app.bundleId);
+      const isFavorited = isFavorite(item.app.bundleId);
+
+      const accessories = [
+        ...(latestVersionInfo?.latestVersion && latestVersionInfo.latestVersion !== item.app.version
+          ? [{ tag: { value: `Update: ${latestVersionInfo.latestVersion}`, color: "#00FF00" } }]
+          : []),
+        ...(isFavorited ? [{ icon: Icon.Heart, tooltip: "Favorite" }] : []),
+        { text: `${item.downloadCount}×`, tooltip: "Download count" },
+        { text: formatFriendlyDateTime(item.downloadDate), tooltip: "Last downloaded" },
+      ];
+
+      map.set(item.app.bundleId, accessories);
+    });
+    return map;
+  }, [filteredHistory, latestVersions, isFavorite]);
+
   // Toggle favorite status
   const toggleFavorite = useCallback(
     async (item: DownloadHistoryItem) => {
@@ -95,17 +116,7 @@ export default function DownloadHistory() {
       const app = item.app;
       const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
       const isFavorited = isFavorite(app.bundleId);
-      const friendlyDate = formatFriendlyDateTime(item.downloadDate);
-      const downloadCountText = item.downloadCount.toString();
-      const downloadCountTooltip = "Downloaded " + item.downloadCount + " time" + (item.downloadCount !== 1 ? "s" : "");
-
-      // Get latest version info
-      const latestVersionInfo = latestVersions.get(app.bundleId);
-      const latestVersion = latestVersionInfo?.latestVersion;
-      const hasUpdate = latestVersion && latestVersion !== app.version;
-
-      // Format version text with update indicator
-      const versionTooltip = hasUpdate ? `Update available: ${app.version} → ${latestVersion}` : "Latest Version";
+      const accessories = accessoriesMap.get(app.bundleId) || [];
 
       const itemKey = app.bundleId + "-" + index;
 
@@ -113,19 +124,7 @@ export default function DownloadHistory() {
         <List.Item
           key={itemKey}
           title={cleanAppNameForFilename(app.name)}
-          accessories={[
-            { text: friendlyDate, tooltip: "Last downloaded " + formatDate(item.downloadDate) },
-            { icon: { source: Icon.Download }, text: downloadCountText, tooltip: downloadCountTooltip },
-            ...(hasUpdate
-              ? [
-                  { text: `v${app.version} →`, tooltip: versionTooltip },
-                  { tag: { value: latestVersion, color: Color.Green }, tooltip: versionTooltip },
-                ]
-              : [{ text: `v${app.version}`, tooltip: versionTooltip }]),
-            ...(isFavorited
-              ? [{ icon: { source: Icon.Heart, tintColor: Color.Magenta }, tooltip: "In Favorites" }]
-              : []),
-          ]}
+          accessories={accessories}
           icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
           actions={
             <ActionPanel>
@@ -189,7 +188,7 @@ export default function DownloadHistory() {
         />
       );
     },
-    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory, refresh],
+    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory, refresh, accessoriesMap],
   );
 
   return (

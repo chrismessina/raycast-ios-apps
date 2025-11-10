@@ -7,3 +7,4 @@ export * from "./use-recent-searches";
 export * from "./use-favorite-apps";
 export * from "./use-download-history";
 export * from "./use-latest-versions";
+export * from "./use-version-accessories";
