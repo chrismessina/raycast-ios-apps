@@ -1,4 +1,4 @@
-import { Icon, List, ActionPanel, Action } from "@raycast/api";
+import { Icon, List, ActionPanel, Action, Image } from "@raycast/api";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { formatFriendlyDateTime, cleanAppNameForFilename } from "./utils/formatting";
 import { useAppDownload, useFavoriteApps, useDownloadHistory, useLatestVersions, useVersionAccessories } from "./hooks";
@@ -131,7 +131,7 @@ export default function DownloadHistory() {
           key={itemKey}
           title={cleanAppNameForFilename(app.name)}
           accessories={accessories}
-          icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
+          icon={iconUrl ? { source: iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
           actions={
             <ActionPanel>
               <Action

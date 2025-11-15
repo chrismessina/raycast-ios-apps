@@ -1,4 +1,4 @@
-import { Icon, List, ActionPanel, Action, Color, LocalStorage } from "@raycast/api";
+import { Icon, List, ActionPanel, Action, Color, LocalStorage, Image } from "@raycast/api";
 import { useState, useEffect } from "react";
 import { formatPrice, formatDate } from "./utils/formatting";
 import { renderStarRating } from "./utils/common";
@@ -173,7 +173,7 @@ export default function Search() {
                     tooltip: isFavorited ? "Favorited" : "Not Favorited",
                   },
                 ]}
-                icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
+                icon={iconUrl ? { source: iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
                 detail={
                   <List.Item.Detail
                     markdown={`

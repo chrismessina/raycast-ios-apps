@@ -1,4 +1,4 @@
-import { Icon, List, ActionPanel, Action } from "@raycast/api";
+import { Icon, List, ActionPanel, Action, Image } from "@raycast/api";
 import { useState, useMemo } from "react";
 import { useFrecencySorting } from "@raycast/utils";
 import { formatFriendlyDateTime } from "./utils/formatting";
@@ -79,7 +79,7 @@ export default function Favorites() {
         title={app.name}
         subtitle={app.sellerName}
         accessories={accessories}
-        icon={iconUrl ? { source: iconUrl } : Icon.AppWindow}
+        icon={iconUrl ? { source: iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
         actions={
           <ActionPanel>
             <AppActionPanelContent

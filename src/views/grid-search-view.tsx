@@ -1,4 +1,4 @@
-import { Grid, Icon, Color, ActionPanel, Action } from "@raycast/api";
+import { Grid, Icon, Color, ActionPanel, Action, Image } from "@raycast/api";
 import { AppDetails } from "../types";
 import { AppActionPanelContent } from "../components/app-action-panel";
 
@@ -60,6 +60,7 @@ export function GridSearchView({
                 key={app.bundleId}
                 content={{
                   source: iconUrl || Icon.AppWindow,
+                  ...(iconUrl && { mask: Image.Mask.RoundedRectangle }),
                 }}
                 title={app.name}
                 subtitle={`v${app.version}`}
