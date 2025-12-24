@@ -461,10 +461,11 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         );
       } else {
         // Handle general download errors with specific user message
+        // Pass shouldThrow=false since we're already in error handling and just want to show the toast
         logger.log(
           `[useAppDownload] General download error handled. userMessage="${errorAnalysis.userMessage}" type=${errorAnalysis.errorType}`,
         );
-        await handleDownloadError(new Error(errorAnalysis.userMessage), "download app", "download");
+        await handleDownloadError(new Error(errorAnalysis.userMessage), "download app", "download", false);
       }
 
       return undefined;

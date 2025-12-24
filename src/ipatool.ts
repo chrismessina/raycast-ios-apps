@@ -481,10 +481,11 @@ export async function purchaseApp(
 
     return false;
   } catch (error) {
-    logger.error(`[ipatool] Error during app purchase for ${appName || bundleId}:`, error);
+    // Extract error message properly (Error objects don't JSON-serialize well)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`[ipatool] Error during app purchase for ${appName || bundleId}: ${errorMessage}`);
 
     // Analyze the error message
-    const errorMessage = error instanceof Error ? error.message : String(error);
     const errorAnalysis = analyzeIpatoolError(errorMessage, errorMessage);
 
     if (errorAnalysis.isAuthError) {
@@ -1158,8 +1159,10 @@ export async function downloadApp(
                 // Reject with NeedsLoginError to let the hook handle it with navigation
                 reject(new NeedsLoginError(finalErrorMessage));
               } else {
-                await handleDownloadError(new Error(finalErrorMessage), "download app", "downloadApp");
-                reject(new Error(errorMessage));
+                // Pass shouldThrow=false since we're inside an async callback and will reject() below
+                // Throwing here would cause an uncaught exception that crashes the extension
+                await handleDownloadError(new Error(finalErrorMessage), "download app", "downloadApp", false);
+                reject(new Error(finalErrorMessage));
               }
               return;
             }
@@ -1266,11 +1269,12 @@ export async function downloadApp(
                   logger.error(`[ipatool] Error cleaning up corrupted file:`, cleanupError);
                 }
 
-                // Handle corrupted file error
+                // Handle corrupted file error (shouldThrow=false since we're in async callback)
                 await handleDownloadError(
                   new Error(`Downloaded file is corrupted: ${integrityResult.errorMessage}`),
                   "verify downloaded file",
                   "downloadApp",
+                  false,
                 );
 
                 // Optional automatic retry (once) for corrupted files
@@ -1396,7 +1400,8 @@ export async function downloadApp(
             if (!suppressHUD) {
               await showHUD("Download failed");
             }
-            await handleDownloadError(error, "download app", "downloadApp");
+            // shouldThrow=false since we're in async callback and will reject() below
+            await handleDownloadError(error, "download app", "downloadApp", false);
             reject(error);
           });
         })

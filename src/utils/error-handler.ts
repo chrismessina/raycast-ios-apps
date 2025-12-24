@@ -86,41 +86,72 @@ async function handleSuggestedAction(action: string): Promise<void> {
 }
 
 /**
+ * Extract a clean error message from any error type
+ */
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error && typeof error === "object") {
+    // Handle objects with message property
+    if ("message" in error && typeof (error as { message: unknown }).message === "string") {
+      return (error as { message: string }).message;
+    }
+    // Handle objects with error property
+    if ("error" in error && typeof (error as { error: unknown }).error === "string") {
+      return (error as { error: string }).error;
+    }
+    // Try to stringify, but avoid [object Object]
+    try {
+      const str = JSON.stringify(error);
+      if (str && str !== "{}" && str !== "[]") {
+        return str;
+      }
+    } catch {
+      // Ignore stringify errors
+    }
+  }
+  return "An unknown error occurred";
+}
+
+/**
  * Handle errors consistently across all tools
  * @param error The error that occurred
  * @param context Context string to identify where the error occurred (e.g., "get-app-details tool")
  * @param userMessage User-friendly message to show in toast
- * @param shouldThrow Whether to throw the error after logging and showing toast (default: true)
+ * @param shouldThrow Whether to throw the error after handling
  * @param suggestedAction Optional action text for toast primary action
  */
 export async function handleToolError(
   error: unknown,
   context: string,
   userMessage: string,
-  shouldThrow: boolean = true,
+  shouldThrow = true,
   suggestedAction?: string,
 ): Promise<void> {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  // Extract a clean error message and create a proper Error object
+  const errorMessage = extractErrorMessage(error);
+  const cleanError = new Error(errorMessage);
 
   // Log the error with context
   logger.error(`[${context}] Error: ${errorMessage}`);
 
-  // Show user-friendly toast with optional action
+  // Show user-friendly toast using Raycast conventions
   if (suggestedAction) {
-    await showToast({
-      style: Toast.Style.Failure,
+    await showFailureToast(cleanError, {
       title: userMessage,
-      message: errorMessage,
       primaryAction: {
         title: suggestedAction,
         onAction: () => handleSuggestedAction(suggestedAction),
       },
     });
   } else {
-    await showFailureToast(error instanceof Error ? error : new Error(errorMessage), { title: userMessage });
+    await showFailureToast(cleanError, { title: userMessage });
   }
 
-  // Optionally throw the error for further handling
   if (shouldThrow) {
     throw new Error(`${userMessage}: ${errorMessage}`);
   }
@@ -177,16 +208,18 @@ export async function handleAppSearchError(error: unknown, query: string, toolNa
  * @param error The error that occurred
  * @param operation Description of the operation that failed
  * @param toolName Name of the tool that failed
+ * @param shouldThrow Whether to throw the error after handling
  * @param suggestedAction Optional action text for toast primary action
  */
 export async function handleDownloadError(
   error: unknown,
   operation: string,
   toolName: string,
+  shouldThrow = true,
   suggestedAction?: string,
 ): Promise<void> {
   const sanitizedOperation = sanitizeQuery(operation);
-  await handleToolError(error, `${toolName} tool`, `Failed to ${sanitizedOperation}`, true, suggestedAction);
+  await handleToolError(error, `${toolName} tool`, `Failed to ${sanitizedOperation}`, shouldThrow, suggestedAction);
 }
 
 /**
