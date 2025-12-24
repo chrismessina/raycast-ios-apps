@@ -22,4 +22,4 @@
   - [X] Add ability to export starred list to CSV  
 - [ ] Refactor simultaneous download handling (ensure that it works correctly given Raycast limitations)
 - [X] Improve app renaming algorithm to remove extraneous information OR allow setting custom file mask
-- [ ] Add a command to download an app's full resolution icon
+- [X] Add a command to download an app's full resolution icon

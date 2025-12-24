@@ -2,6 +2,7 @@ import { ActionPanel, Action, Icon, Keyboard } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
+import { downloadAppIcon } from "../utils/icon-downloader";
 import { getAppStoreUrl } from "../utils/constants";
 import { useAppDownload } from "../hooks/use-app-download";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
@@ -12,6 +13,7 @@ interface AppActionsProps {
   app: AppDetails;
   onDownload?: (app: AppDetails) => Promise<string | null | undefined>;
   onDownloadScreenshots?: (app: AppDetails) => Promise<string | null | undefined>;
+  onDownloadIcon?: (app: AppDetails) => Promise<string | null | undefined>;
   isFavorited?: boolean;
   onAddFavorite?: (app: AppDetails) => Promise<void>;
   onRemoveFavorite?: (bundleId: string) => Promise<void>;
@@ -24,6 +26,7 @@ export function AppActions({
   app,
   onDownload,
   onDownloadScreenshots,
+  onDownloadIcon,
   isFavorited: isFavoritedProp,
   onAddFavorite,
   onRemoveFavorite,
@@ -72,6 +75,22 @@ export function AppActions({
     }
   };
 
+  const handleDownloadIcon = async () => {
+    try {
+      if (onDownloadIcon) {
+        return await onDownloadIcon(app);
+      }
+
+      // Fall back to direct download if no handler provided
+      // Use artworkUrl512 if available, otherwise the utility will fetch from iTunes API
+      return await downloadAppIcon(app.bundleId, app.name, app.artworkUrl512 || app.iconUrl);
+    } catch (error) {
+      console.error("Error downloading icon:", error);
+      showFailureToast({ title: "Error downloading icon", message: String(error) });
+      return null;
+    }
+  };
+
   return (
     <ActionPanel.Section title="App Actions">
       <Action
@@ -91,6 +110,12 @@ export function AppActions({
         icon={Icon.Image}
         onAction={handleDownloadScreenshots}
         shortcut={{ modifiers: ["cmd", "shift"], key: "s" }}
+      />
+      <Action
+        title="Download App Icon"
+        icon={Icon.AppWindowGrid3x3}
+        onAction={handleDownloadIcon}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "i" }}
       />
       {appStoreUrl && (
         <Action.OpenInBrowser
