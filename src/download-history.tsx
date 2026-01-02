@@ -120,7 +120,7 @@ export default function DownloadHistory() {
   const renderListItem = useCallback(
     (item: DownloadHistoryItem, index: number) => {
       const app = item.app;
-      const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
+      const iconUrl = app.iconUrl;
       const isFavorited = isFavorite(app.bundleId);
       const accessories = accessoriesMap.get(app.bundleId) || [];
 

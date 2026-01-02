@@ -1,4 +1,4 @@
-import { ActionPanel, Action, Icon, Keyboard } from "@raycast/api";
+import { ActionPanel, Action, Icon, Keyboard, Clipboard, showToast, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
@@ -8,6 +8,7 @@ import { useAppDownload } from "../hooks/use-app-download";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
 import { useFavoriteApps } from "../hooks/use-favorite-apps";
 import { FavoriteActions } from "./favorite-actions";
+import { getAppMarkdown } from "./app-detail-content";
 
 interface AppActionsProps {
   app: AppDetails;
@@ -82,12 +83,21 @@ export function AppActions({
       }
 
       // Fall back to direct download if no handler provided
-      // Use artworkUrl512 if available, otherwise the utility will fetch from iTunes API
-      return await downloadAppIcon(app.bundleId, app.name, app.artworkUrl512 || app.iconUrl);
+      return await downloadAppIcon(app.bundleId, app.name, app.iconUrl);
     } catch (error) {
       console.error("Error downloading icon:", error);
       showFailureToast({ title: "Error downloading icon", message: String(error) });
       return null;
+    }
+  };
+
+  const handleCopyDescriptionMarkdown = async () => {
+    try {
+      const markdown = getAppMarkdown(app, isFavorited);
+      await Clipboard.copy(markdown);
+      await showToast(Toast.Style.Success, "Copied Description as Markdown");
+    } catch (error) {
+      showFailureToast({ title: "Error copying description", message: String(error) });
     }
   };
 
@@ -104,6 +114,12 @@ export function AppActions({
         isFavorited={isFavorited}
         onAddFavorite={handleAddFavorite}
         onRemoveFavorite={handleRemoveFavorite}
+      />
+      <Action
+        title="Copy Description as Markdown"
+        icon={Icon.QuoteBlock}
+        onAction={handleCopyDescriptionMarkdown}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
       />
       <Action
         title="Download Screenshots"

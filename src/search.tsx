@@ -152,8 +152,8 @@ export default function Search() {
             // Format release date
             const releaseDate = formatDate(app.currentVersionReleaseDate || app.releaseDate);
 
-            // Get app icon
-            const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
+            // Get app icon (standardized to best resolution)
+            const iconUrl = app.iconUrl;
 
             // Check if app is favorited
             const isFavorited = isFavorite(app.bundleId);

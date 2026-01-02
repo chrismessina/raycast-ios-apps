@@ -51,8 +51,8 @@ export function GridSearchView({
       {!error && apps.length > 0 && (
         <Grid.Section title={totalResults > 0 ? `Results (${totalResults})` : ""}>
           {apps.map((app) => {
-            // Use highest quality artwork available for Grid view
-            const iconUrl = app.artworkUrl512 || app.iconUrl || app.artworkUrl60;
+            // Standardized iconUrl already provides the best resolution
+            const iconUrl = app.iconUrl;
             const isFavorited = isFavorite(app.bundleId);
 
             return (

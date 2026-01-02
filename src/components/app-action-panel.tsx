@@ -35,7 +35,7 @@ export function AppActionPanelContent({
         onAddFavorite={onAddFavorite}
         onRemoveFavorite={onRemoveFavorite}
       />
-      <CopyActions app={app} />
+      <CopyActions app={app} isFavorited={isFavorited} />
     </>
   );
 }

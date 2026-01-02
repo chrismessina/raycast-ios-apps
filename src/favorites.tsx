@@ -56,7 +56,7 @@ export default function Favorites() {
   // Render a favorite app item
   const renderFavoriteItem = (item: FavoriteApp, index: number) => {
     const app = item.app;
-    const iconUrl = app.artworkUrl60 || app.artworkUrl512 || app.iconUrl;
+    const iconUrl = app.iconUrl;
     const downloadCount = getDownloadCount(app.bundleId);
 
     // Build accessories based on sort option

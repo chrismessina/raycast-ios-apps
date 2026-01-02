@@ -10,6 +10,27 @@ interface AppDetailContentProps {
   isFavorited?: boolean;
 }
 
+export function getAppMarkdown(app: AppDetails, isFavorited = false): string {
+  const iconUrl = app.iconUrl;
+
+  return `
+## ${app.name} (${app.version})${isFavorited ? " ♥" : ""}
+
+${iconUrl && `![App Icon](${iconUrl}?raycast-width=128&raycast-height=128)`}
+
+${app.description || "No description available"}
+
+${app.screenshotUrls && app.screenshotUrls.length > 0
+      ? `
+### Screenshots
+
+${app.screenshotUrls.map((url, index) => `![Screenshot ${index + 1}](${url}?raycast-width=128)`).join(" ")}
+`
+      : ""
+    }
+    `;
+}
+
 export function AppDetailContent({ app, isFavorited = false }: AppDetailContentProps) {
   // Function to format file size to human-readable format (e.g., KB, MB, GB)
   function formatFileSize(bytes: number | string): string {
@@ -24,9 +45,6 @@ export function AppDetailContent({ app, isFavorited = false }: AppDetailContentP
     const i = Math.floor(Math.log(bytesNum) / Math.log(k));
     return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
-
-  // Get the app icon URL with fallbacks
-  const iconUrl = app.artworkUrl512 || app.artworkUrl60 || app.iconUrl || "";
 
   // Create a fallback App Store URL if trackViewUrl is not available
   const appStoreUrl = app.trackViewUrl || getAppStoreUrl(app.id);
@@ -53,23 +71,7 @@ export function AppDetailContent({ app, isFavorited = false }: AppDetailContentP
   const currentVersionReleaseDate = formatDate(app.currentVersionReleaseDate);
 
   return {
-    markdown: `
-## ${app.name} (${app.version})${isFavorited ? " ♥" : ""}
-
-${iconUrl && `![App Icon](${iconUrl}?raycast-width=128&raycast-height=128)`}
-
-${app.description || "No description available"}
-
-${
-  app.screenshotUrls && app.screenshotUrls.length > 0
-    ? `
-### Screenshots
-
-${app.screenshotUrls.map((url, index) => `![Screenshot ${index + 1}](${url}?raycast-width=128)`).join(" ")}
-`
-    : ""
-}
-    `,
+    markdown: getAppMarkdown(app, isFavorited),
     metadata: (
       <Detail.Metadata>
         <Detail.Metadata.TagList title="Genres">

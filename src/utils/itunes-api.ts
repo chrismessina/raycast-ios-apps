@@ -54,7 +54,7 @@ export function convertITunesResultToAppDetails(
     version: itunesData.version || base.version || "",
     bundleId: itunesData.bundleId || base.bundleId || "",
     description: itunesData.description || base.description || "",
-    // Set the iconUrl as a fallback using the highest resolution available
+    // iconUrl is the primary field for the best available icon (512 > 100 > 60)
     iconUrl: itunesData.artworkUrl512 || itunesData.artworkUrl100 || itunesData.artworkUrl60 || base.iconUrl || "",
     sellerName: itunesData.sellerName || base.sellerName || "Unknown Developer",
     artistName: itunesData.artistName || base.artistName || "",

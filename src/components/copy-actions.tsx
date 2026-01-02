@@ -1,16 +1,18 @@
-import { Action, ActionPanel, Clipboard, Icon, Toast, showToast } from "@raycast/api";
+import { Action, ActionPanel, Clipboard, Icon, Keyboard, Toast, showToast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
+import { getAppMarkdown } from "./app-detail-content";
 
 interface CopyActionsProps {
   app: AppDetails;
+  isFavorited?: boolean;
 }
 
 /**
  * Reusable component for copy-related actions
  */
-export function CopyActions({ app }: CopyActionsProps) {
+export function CopyActions({ app, isFavorited = false }: CopyActionsProps) {
   // Function to copy text to clipboard
   async function copyToClipboard(text: string, toastTitle: string) {
     try {
@@ -55,9 +57,15 @@ export function CopyActions({ app }: CopyActionsProps) {
         onAction={() => copyToClipboard(app.sellerName || "Unknown Developer", "Developer")}
       />
       <Action
+        title="Copy Description as Markdown"
+        icon={Icon.QuoteBlock}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
+        onAction={() => copyToClipboard(getAppMarkdown(app, isFavorited), "Description as Markdown")}
+      />
+      <Action
         title="Copy App Store URL"
         icon={Icon.Link}
-        shortcut={{ modifiers: ["cmd"], key: "c" }}
+        shortcut={Keyboard.Shortcut.Common.Copy}
         onAction={() => copyToClipboard(appStoreUrl, "App Store URL")}
       />
       {app.artistViewUrl && (
