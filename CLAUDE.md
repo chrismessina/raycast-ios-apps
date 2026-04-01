@@ -20,6 +20,7 @@ npm run fix-lint  # Auto-fix lint issues
 ### Data Flow
 
 The extension uses a **dual-source approach**:
+
 1. **ipatool** (`src/ipatool.ts`) — wraps the `ipatool` CLI for App Store search, authentication, and IPA downloads. Manages auth state including 2FA.
 2. **iTunes API** (`src/utils/itunes-api.ts`) — enriches search results with ratings, icons, screenshots, descriptions via `itunes.apple.com`.
 3. **App Store Scraper** (`src/utils/app-store-scraper.ts`) — parses "shoebox JSON" from App Store web pages to extract high-resolution screenshots by platform. Apple may change this structure at any time.
