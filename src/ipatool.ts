@@ -4,7 +4,6 @@ import https from "https";
 import path from "path";
 import { promisify } from "util";
 
-import AdmZip from "adm-zip";
 import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { logger } from "@chrismessina/raycast-logger";
 
@@ -374,17 +373,20 @@ export async function purchaseApp(
   appName?: string,
   options?: { suppressHUD?: boolean },
 ): Promise<boolean> {
-  try {
-    const displayName = appName || bundleId;
-    logger.log(`[ipatool] Attempting to purchase app: ${displayName} (${bundleId})`);
+  const displayName = appName || bundleId;
+  const done = logger.time(`purchaseApp:${displayName}`);
+  logger.log(`[ipatool] Attempting to purchase app: ${displayName} (${bundleId})`);
 
-    const suppressHUD = options?.suppressHUD ?? false;
-    if (!suppressHUD) {
-      await showHUD(`Attempting to purchase ${displayName}...`);
-    }
+  const suppressHUD = options?.suppressHUD ?? false;
+  if (!suppressHUD) {
+    await showHUD(`Attempting to purchase ${displayName}...`);
+  }
 
-    // Execute the purchase command using secure spawn
-    const { stdout, stderr } = await spawnAsync(IPATOOL_PATH, [
+  // Use a promise-based spawn that captures stdout even on non-zero exit
+  const stdout = await new Promise<string>((resolve, reject) => {
+    let out = "";
+    let err = "";
+    const child = spawn(IPATOOL_PATH, [
       "purchase",
       "--bundle-identifier",
       bundleId,
@@ -394,106 +396,81 @@ export async function purchaseApp(
       "--verbose",
     ]);
 
-    logger.log(`[ipatool] Purchase command completed for ${displayName}`);
-    logger.log(`[ipatool] stdout: ${stdout}`);
+    child.stdout?.on("data", (data: Buffer) => {
+      out += data.toString();
+    });
+    child.stderr?.on("data", (data: Buffer) => {
+      err += data.toString();
+    });
+    child.on("error", (e) => reject(e));
+    child.on("close", () => {
+      // Always resolve with stdout so we can parse errors from ipatool's JSON output
+      // (ipatool writes structured error info to stdout, not stderr)
+      resolve(out + "\n" + err);
+    });
+  });
 
-    if (stderr) {
-      logger.log(`[ipatool] stderr: ${stderr}`);
-    }
+  logger.log(`[ipatool] Purchase output for ${displayName}: ${stdout}`);
 
-    // Normalize and combine outputs for detection and parsing
-    const combined = `${stdout}\n${stderr}`;
-    const combinedLower = combined.toLowerCase();
+  // Parse all JSON lines from ipatool output
+  const lines = stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("{") && l.endsWith("}"));
 
-    // Quick string-based success checks in either stream
-    if (
-      combinedLower.includes('"success": true') ||
-      combinedLower.includes("license obtained") ||
-      combinedLower.includes("already purchased") ||
-      combinedLower.includes("already owned")
-    ) {
-      logger.log(`[ipatool] Purchase successful or already owned for ${displayName}`);
-      if (!suppressHUD) {
-        await showHUD(`Successfully purchased ${displayName}`);
-      }
-      return true;
-    }
+  let lastError = "";
+  let succeeded = false;
 
-    // Parse line-delimited JSON emitted by ipatool in stdout/stderr
+  for (const line of lines) {
     try {
-      const lines = combined
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.startsWith("{") && l.endsWith("}"));
-
-      for (const line of lines) {
-        try {
-          const obj = JSON.parse(line) as Record<string, unknown>;
-          // success true anywhere indicates success
-          if (obj && (obj["success"] === true || obj["message"] === "license obtained")) {
-            logger.log(`[ipatool] Parsed JSON success during purchase for ${displayName}`);
-            if (!suppressHUD) {
-              await showHUD(`Successfully purchased ${displayName}`);
-            }
-            return true;
-          }
-          // Some versions report status text in "error" but success boolean separately
-          if (obj && typeof obj["error"] === "string") {
-            const err = String(obj["error"]).toLowerCase();
-            if (err.includes("already purchased") || err.includes("already owned")) {
-              logger.log(`[ipatool] Parsed JSON indicates already owned for ${displayName}`);
-              return true;
-            }
-          }
-        } catch {
-          // ignore bad lines
+      const obj = JSON.parse(line) as Record<string, unknown>;
+      if (obj["success"] === true || obj["message"] === "license obtained") {
+        succeeded = true;
+        break;
+      }
+      if (typeof obj["error"] === "string") {
+        const errStr = String(obj["error"]).toLowerCase();
+        if (errStr.includes("already purchased") || errStr.includes("already owned") || errStr.includes("license already exists")) {
+          succeeded = true;
+          break;
         }
+        lastError = String(obj["error"]);
       }
     } catch {
-      // ignore parse errors, fallback to analyzer below
+      // skip non-JSON lines
     }
-
-    // If we get here, the purchase might have failed
-    logger.log(`[ipatool] Purchase may have failed for ${displayName}. Checking for errors...`);
-    logger.log(`[ipatool] Purchase stdout: ${stdout}`);
-    logger.log(`[ipatool] Purchase stderr: ${stderr}`);
-
-    // Analyze any errors
-    const errorAnalysis = analyzeIpatoolError(combined, stderr);
-
-    if (errorAnalysis.isAuthError) {
-      logger.error(`[ipatool] Authentication error during app purchase: ${errorAnalysis.userMessage}`);
-      await handleAuthError(new Error(errorAnalysis.userMessage), false);
-      return false;
-    }
-
-    // For non-auth errors, provide more specific error information
-    logger.log(`[ipatool] Purchase failed for ${displayName}: ${errorAnalysis.userMessage}`);
-
-    // Check for specific purchase failure reasons
-    if (combinedLower.includes("not available") || combinedLower.includes("not found")) {
-      logger.log(`[ipatool] App ${displayName} not available for purchase in this region`);
-    }
-
-    if (combinedLower.includes("requires payment") || combinedLower.includes("not free")) {
-      logger.log(`[ipatool] App ${displayName} is not free and requires payment`);
-    }
-
-    return false;
-  } catch (error) {
-    // Extract error message properly (Error objects don't JSON-serialize well)
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`[ipatool] Error during app purchase for ${appName || bundleId}: ${errorMessage}`);
-
-    // Analyze the error message
-    const errorAnalysis = analyzeIpatoolError(errorMessage, errorMessage);
-
-    if (errorAnalysis.isAuthError) {
-      await handleAuthError(error instanceof Error ? error : new Error(errorMessage), false);
-    }
-
-    return false;
   }
+
+  // Also check raw output for success indicators
+  const outputLower = stdout.toLowerCase();
+  if (!succeeded && (outputLower.includes('"success":true') || outputLower.includes("license already exists"))) {
+    succeeded = true;
+  }
+
+  if (succeeded) {
+    done({ result: "success" });
+    logger.info(`[ipatool] Purchase successful or already owned for ${displayName}`);
+    if (!suppressHUD) {
+      await showHUD(`Successfully purchased ${displayName}`);
+    }
+    return true;
+  }
+
+  // Purchase failed — analyze the error from stdout JSON
+  const errorToAnalyze = lastError || stdout;
+  logger.error(`[ipatool] Purchase failed for ${displayName}: ${lastError || "(no parsed error)"}`);
+  const errorAnalysis = analyzeIpatoolError(errorToAnalyze, "", "download");
+
+  if (errorAnalysis.isAuthError) {
+    logger.error(`[ipatool] Auth error during purchase: ${errorAnalysis.userMessage}`);
+    done({ result: "auth_error" });
+    // Throw so the download flow can catch this and redirect to sign-in
+    const { NeedsLoginError } = await import("./utils/auth");
+    throw new NeedsLoginError(errorAnalysis.userMessage);
+  }
+
+  done({ result: "failed", errorType: errorAnalysis.errorType });
+  return false;
 }
 
 /**
@@ -528,61 +505,105 @@ export async function verifyFileIntegrity(
 
     logger.log(`[integrity] ✓ File exists and has valid size: ${Math.round(stats.size / BYTES_PER_MB)} MB`);
 
-    // Structural: open as zip, check for Payload/*.app and Info.plist
-    let zip: AdmZip;
+    // Structural: verify ZIP magic bytes and scan central directory for Payload/*.app and Info.plist
+    // Uses streaming reads instead of adm-zip to avoid loading entire file into memory
+    // (large IPAs like 872 MB would crash the Raycast worker with OOM)
+    const fd = fs.openSync(filePath, "r");
     try {
-      zip = new AdmZip(filePath);
-    } catch (error) {
-      const errorMsg = `Downloaded file is not a valid ZIP/IPA archive: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(`[integrity] Invalid ZIP structure: ${filePath}`);
-      return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
-    }
-
-    const entries = zip.getEntries();
-    if (entries.length === 0) {
-      const errorMsg = `Downloaded IPA file is empty or corrupted`;
-      logger.error(`[integrity] Empty ZIP archive: ${filePath}`);
-      return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
-    }
-
-    // Check for Payload/*.app structure
-    let foundPayloadApp = false;
-    let foundInfoPlist = false;
-
-    for (const entry of entries) {
-      const entryName = entry.entryName;
-
-      // Check for Payload/*.app pattern
-      if (entryName.startsWith("Payload/") && entryName.includes(".app/") && !foundPayloadApp) {
-        foundPayloadApp = true;
-        logger.log(`[integrity] ✓ Found Payload app structure: ${entryName}`);
+      // Check ZIP magic bytes (PK\x03\x04)
+      const magic = Buffer.alloc(4);
+      fs.readSync(fd, magic, 0, 4, 0);
+      if (magic[0] !== 0x50 || magic[1] !== 0x4b || magic[2] !== 0x03 || magic[3] !== 0x04) {
+        const errorMsg = `Downloaded file is not a valid ZIP/IPA archive (bad magic bytes)`;
+        logger.error(`[integrity] Invalid ZIP magic bytes: ${filePath}`);
+        return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
       }
 
-      // Check for Info.plist
-      if (entryName.includes("Info.plist") && !foundInfoPlist) {
-        foundInfoPlist = true;
-        logger.log(`[integrity] ✓ Found Info.plist: ${entryName}`);
+      // Read the end of the file to find the End of Central Directory record (EOCD)
+      // EOCD is at most 65557 bytes from the end (22 byte fixed + up to 65535 comment)
+      const tailSize = Math.min(stats.size, 65557);
+      const tail = Buffer.alloc(tailSize);
+      fs.readSync(fd, tail, 0, tailSize, stats.size - tailSize);
+
+      // Search backwards for EOCD signature (PK\x05\x06)
+      let eocdOffset = -1;
+      for (let i = tailSize - 22; i >= 0; i--) {
+        if (tail[i] === 0x50 && tail[i + 1] === 0x4b && tail[i + 2] === 0x05 && tail[i + 3] === 0x06) {
+          eocdOffset = i;
+          break;
+        }
       }
 
-      // Exit early if we found both required components
-      if (foundPayloadApp && foundInfoPlist) {
-        break;
+      if (eocdOffset === -1) {
+        const errorMsg = `Downloaded IPA file is corrupted (no central directory found)`;
+        logger.error(`[integrity] No EOCD record found: ${filePath}`);
+        return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
       }
-    }
 
-    if (!foundPayloadApp) {
-      const errorMsg = `Downloaded IPA file missing required Payload/*.app structure`;
-      logger.error(`[integrity] Missing Payload/*.app structure in: ${filePath}`);
-      return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
-    }
+      // Parse EOCD to find central directory offset and size
+      const cdSize = tail.readUInt32LE(eocdOffset + 12);
+      const cdOffset = tail.readUInt32LE(eocdOffset + 16);
 
-    if (!foundInfoPlist) {
-      const errorMsg = `Downloaded IPA file missing required Info.plist`;
-      logger.error(`[integrity] Missing Info.plist in: ${filePath}`);
-      return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
-    }
+      if (cdOffset + cdSize > stats.size || cdSize === 0) {
+        const errorMsg = `Downloaded IPA file is empty or corrupted`;
+        logger.error(`[integrity] Invalid central directory: offset=${cdOffset}, size=${cdSize}`);
+        return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
+      }
 
-    logger.log(`[integrity] ✓ IPA file has valid structure with Payload/*.app and Info.plist`);
+      // Read central directory entries to check for Payload/*.app and Info.plist
+      // Only read the central directory portion, not the entire file
+      const cd = Buffer.alloc(cdSize);
+      fs.readSync(fd, cd, 0, cdSize, cdOffset);
+
+      let foundPayloadApp = false;
+      let foundInfoPlist = false;
+      let pos = 0;
+
+      while (pos + 46 <= cdSize) {
+        // Check for central directory file header signature (PK\x01\x02)
+        if (cd[pos] !== 0x50 || cd[pos + 1] !== 0x4b || cd[pos + 2] !== 0x01 || cd[pos + 3] !== 0x02) {
+          break;
+        }
+
+        const nameLen = cd.readUInt16LE(pos + 28);
+        const extraLen = cd.readUInt16LE(pos + 30);
+        const commentLen = cd.readUInt16LE(pos + 32);
+
+        if (pos + 46 + nameLen > cdSize) break;
+
+        const entryName = cd.toString("utf8", pos + 46, pos + 46 + nameLen);
+
+        if (!foundPayloadApp && entryName.startsWith("Payload/") && entryName.includes(".app/")) {
+          foundPayloadApp = true;
+          logger.log(`[integrity] ✓ Found Payload app structure: ${entryName}`);
+        }
+
+        if (!foundInfoPlist && entryName.includes("Info.plist")) {
+          foundInfoPlist = true;
+          logger.log(`[integrity] ✓ Found Info.plist: ${entryName}`);
+        }
+
+        if (foundPayloadApp && foundInfoPlist) break;
+
+        pos += 46 + nameLen + extraLen + commentLen;
+      }
+
+      if (!foundPayloadApp) {
+        const errorMsg = `Downloaded IPA file missing required Payload/*.app structure`;
+        logger.error(`[integrity] Missing Payload/*.app structure in: ${filePath}`);
+        return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
+      }
+
+      if (!foundInfoPlist) {
+        const errorMsg = `Downloaded IPA file missing required Info.plist`;
+        logger.error(`[integrity] Missing Info.plist in: ${filePath}`);
+        return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
+      }
+
+      logger.log(`[integrity] ✓ IPA file has valid structure with Payload/*.app and Info.plist`);
+    } finally {
+      fs.closeSync(fd);
+    }
 
     // If ipatool JSON contains "fileSize" or "checksum", compare
     if (ipatoolJson) {
@@ -1139,6 +1160,14 @@ export async function downloadApp(
                       finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to authentication issues or App Store restrictions.`;
                     }
                   } catch (purchaseError) {
+                    // If purchase failed due to auth (e.g. expired token, password changed),
+                    // propagate NeedsLoginError directly so the download hook redirects to sign-in
+                    if (purchaseError instanceof Error && purchaseError.name === "NeedsLoginError") {
+                      logger.error(`[ipatool] Auth required during license purchase for ${appName || bundleId}`);
+                      reject(purchaseError);
+                      return;
+                    }
+
                     logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
                     if (!suppressHUD) {
                       await showHUD(`License purchase error for ${appName || bundleId}`);

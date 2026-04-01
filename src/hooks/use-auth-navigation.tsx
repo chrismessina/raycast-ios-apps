@@ -1,11 +1,13 @@
 import { useNavigation, popToRoot as apiPopToRoot } from "@raycast/api";
 import React, { useCallback } from "react";
+import { showFailureToast } from "@raycast/utils";
+import { logger } from "@chrismessina/raycast-logger";
 import { AppleLoginForm } from "../components/forms/AppleLoginForm";
 import { AppleTwoFactorForm } from "../components/forms/AppleTwoFactorForm";
-import { loginToAppleId, storeAppleId, storePassword } from "../utils/auth";
+import { loginToAppleId, storeAppleId, storePassword, getAppleIdFromStorage } from "../utils/auth";
 
 export interface AuthNavigationHelpers {
-  pushLoginForm: (onSuccess?: () => void) => void;
+  pushLoginForm: (onSuccess?: () => void) => Promise<void>;
   push2FAForm: (onSuccess?: () => void) => void;
   popToRoot: () => void;
 }
@@ -20,7 +22,14 @@ export function useAuthNavigation(): AuthNavigationHelpers {
           onSubmit={async ({ code }) => {
             // For 2FA, we need to re-authenticate with the stored credentials plus the 2FA code
             // The credentials should already be stored from the initial login attempt
-            await loginToAppleId(undefined, undefined, code);
+            try {
+              await loginToAppleId(undefined, undefined, code);
+            } catch (error) {
+              logger.error("[Auth] 2FA verification failed", error);
+              await showFailureToast(error, { title: "Verification failed" });
+              // Don't pop — keep form open so user can retry
+              return;
+            }
 
             // Call success callback if provided
             if (onSuccess) {
@@ -37,9 +46,11 @@ export function useAuthNavigation(): AuthNavigationHelpers {
   );
 
   const pushLoginForm = useCallback(
-    (onSuccess?: () => void) => {
+    async (onSuccess?: () => void) => {
+      const storedEmail = await getAppleIdFromStorage();
       push(
         <AppleLoginForm
+          initialEmail={storedEmail}
           onSubmit={async ({ email, password }) => {
             try {
               // Always store credentials for a persistent, seamless experience
@@ -62,8 +73,9 @@ export function useAuthNavigation(): AuthNavigationHelpers {
                 // Credentials already stored earlier; proceed to 2FA form
                 push2FAForm(onSuccess);
               } else {
-                // Re-throw other errors to be handled by the form
-                throw error;
+                // Show error toast and keep form open for retry
+                logger.error("[Auth] Login form submission failed", error);
+                await showFailureToast(error, { title: "Login failed" });
               }
             }
           }}

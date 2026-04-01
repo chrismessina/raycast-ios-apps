@@ -124,6 +124,15 @@ export async function login({ email, password, code, onTwoFactorPrompt }: LoginO
       const combined = (stdout + stderr).trim();
 
       if (code === 0) {
+        // IMPORTANT: ipatool exits 0 in non-interactive mode even when 2FA is required.
+        // It prints "2FA code is required" to stdout and returns nil (not an error).
+        // We must check stdout for the 2FA message before declaring success.
+        if (twoFANotified || detectTwoFactorPrompt(combined)) {
+          logger.log("[ipatool-auth] 2FA required (exit code 0, non-interactive mode)");
+          resolve({ success: false, needs2FA: true, message: "Two-factor authentication required. Please provide the 6-digit code from your trusted device.", raw: combined });
+          return;
+        }
+
         logger.log("[ipatool-auth] login successful");
         resolve({ success: true, needs2FA: false, raw: stdout });
         return;

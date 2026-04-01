@@ -38,6 +38,7 @@ export interface IpatoolErrorInfo {
     | "permission_denied"
     | "corruption"
     | "rate_limited"
+    | "session_expired"
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
     | "regional_restriction"
     | "account_restriction"
@@ -86,6 +87,26 @@ export function analyzeIpatoolError(
       isLicenseRequired: false,
       userMessage: "Password is required. Please check your Apple ID password in preferences.",
       errorType: "credentials",
+    };
+  }
+
+  // Session expired / password token stale — ipatool FailureType 2034 or Apple's
+  // "Your password has changed" response. The Apple ID is correct but the stored
+  // token is invalid. Should trigger re-login, NOT credential wipe.
+  if (
+    fullMessage.includes("your password has changed") ||
+    fullMessage.includes("password token is expired") ||
+    fullMessage.includes("password token expired") ||
+    (fullMessage.includes("failuretype") && fullMessage.includes("2034"))
+  ) {
+    return {
+      isAuthError: true,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "Your session has expired. Please sign in again.",
+      suggestedAction: "Sign In",
+      errorType: "session_expired" as IpatoolErrorInfo["errorType"],
     };
   }
 

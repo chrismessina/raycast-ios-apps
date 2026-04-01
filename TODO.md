@@ -20,6 +20,24 @@
   - [X] Add ability to clear all stars
   - [X] Add ability to export starred list to markdown
   - [X] Add ability to export starred list to CSV  
+- [ ] Robust Apple Auth (Phase 1: Steps 1-4) — see `docs/robust-apple-auth.md`
+  - [x] Step 1: Consolidate login onto `ipatool-auth.ts:login()` (S3, S4)
+    - [x] Refactor `auth.ts:loginToAppleId()` to delegate to `ipatool-auth.ts:login()`
+    - [x] Map `LoginResult` to `Needs2FAError` / `NeedsLoginError` / `Error`
+    - [x] Remove duplicate `executeSecureIpatoolCommand(["auth", "login", ...])` from `auth.ts`
+    - [x] Add `logger.step()` and `logger.time()` tracking to login flow
+  - [x] Step 2: Fix crash bugs (C1, C2, C3)
+    - [x] C1: Replace `throw error` with `showFailureToast` in `pushLoginForm` callback
+    - [x] C2: Add try/catch around `loginToAppleId()` in `push2FAForm` callback
+    - [x] C3: `await onSubmit({ code })` in `AppleTwoFactorForm` + fix async prop types on both forms
+  - [x] Step 3: Add loading states and error feedback (F1, F2, F3, F4)
+    - [x] Add `isSubmitting` state + `isLoading` prop to both forms
+    - [x] Disable submit action while submitting
+    - [x] Show `showFailureToast` on login/2FA failure, keep form open for retry
+    - [x] On 2FA failure: clear code field, suggest resend if expired
+  - [x] Step 4: Pre-fill Apple ID and add navigation titles (F5, F6)
+    - [x] Accept `initialEmail` prop on `AppleLoginForm`, pass from `getAppleIdFromStorage()`
+    - [x] Add `navigationTitle` to both forms
 - [ ] Refactor simultaneous download handling (ensure that it works correctly given Raycast limitations)
 - [X] Improve app renaming algorithm to remove extraneous information OR allow setting custom file mask
 - [X] Add a command to download an app's full resolution icon

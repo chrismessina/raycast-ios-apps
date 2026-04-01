@@ -1,17 +1,21 @@
 import { Form, ActionPanel, Action } from "@raycast/api";
 import { useState } from "react";
+import { showFailureToast } from "@raycast/utils";
+import { logger } from "@chrismessina/raycast-logger";
 
 interface AppleLoginFormProps {
-  onSubmit: (credentials: { email: string; password: string }) => void;
+  onSubmit: (credentials: { email: string; password: string }) => void | Promise<void>;
+  initialEmail?: string;
 }
 
-export function AppleLoginForm({ onSubmit }: AppleLoginFormProps) {
-  const [email, setEmail] = useState("");
+export function AppleLoginForm({ onSubmit, initialEmail }: AppleLoginFormProps) {
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | undefined>();
   const [passwordError, setPasswordError] = useState<string | undefined>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!email) {
       setEmailError("Apple ID is required");
       return;
@@ -27,14 +31,24 @@ export function AppleLoginForm({ onSubmit }: AppleLoginFormProps) {
       return;
     }
 
-    onSubmit({ email, password });
+    setIsSubmitting(true);
+    try {
+      await onSubmit({ email, password });
+    } catch (error) {
+      logger.error("[Auth] Login form error", error);
+      await showFailureToast(error, { title: "Login failed" });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <Form
+      isLoading={isSubmitting}
+      navigationTitle="Sign In to Apple ID"
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="Login" onSubmit={handleSubmit} />
+          <Action.SubmitForm title={isSubmitting ? "Signing In…" : "Sign In"} onSubmit={handleSubmit} />
         </ActionPanel>
       }
     >
