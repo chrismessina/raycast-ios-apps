@@ -256,8 +256,8 @@
   ],
   "dependencies": {
     "@chrismessina/raycast-logger": "^1.0.0",
-    "@raycast/api": "^1.103.2",
-    "@raycast/utils": "^1.17.0",
+    "@raycast/api": "^1.104.5",
+    "@raycast/utils": "^2.2.2",
     "adm-zip": "^0.5.16",
     "lodash": "^4.17.21",
     "p-limit": "^6.2.0",
@@ -272,7 +272,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "eslint": "^9.35.0",
-    "prettier": "^3.6.2",
+    "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   },
