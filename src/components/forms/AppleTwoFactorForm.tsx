@@ -1,19 +1,24 @@
 import { Form, ActionPanel, Action, showToast, Toast, useNavigation } from "@raycast/api";
 import { useRef, useState } from "react";
+import { showFailureToast } from "@raycast/utils";
+import { logger } from "@chrismessina/raycast-logger";
 import { loginToAppleId } from "../../utils/auth";
 
 interface AppleTwoFactorFormProps {
-  onSubmit: (credentials: { code: string }) => void;
+  onSubmit: (credentials: { code: string }) => void | Promise<void>;
 }
 
 export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | undefined>();
   const [isResending, setIsResending] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { pop } = useNavigation();
   const lastSubmissionRef = useRef<number>(0);
 
-  function handleSubmit() {
+  async function handleSubmit() {
+    if (isSubmitting) return;
+
     // Prevent rapid submissions
     const now = Date.now();
     if (now - lastSubmissionRef.current < 1000) {
@@ -34,7 +39,24 @@ export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
 
     // Only record timestamp on valid attempts
     lastSubmissionRef.current = now;
-    onSubmit({ code });
+    setIsSubmitting(true);
+    try {
+      await onSubmit({ code });
+    } catch (error) {
+      logger.error("[Auth] 2FA form submission error", error);
+      const message = error instanceof Error ? error.message : String(error);
+      // Check if the code may have expired
+      if (/expired|invalid.*code|wrong.*code/i.test(message)) {
+        await showFailureToast(error, { title: "Code may have expired" });
+        logger.warn("[Auth] 2FA code may have expired, suggesting resend");
+      } else {
+        await showFailureToast(error, { title: "Verification failed" });
+      }
+      // Clear code field so user can retry
+      setCode("");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function handleResend() {
@@ -80,9 +102,11 @@ export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
 
   return (
     <Form
+      isLoading={isSubmitting}
+      navigationTitle="Two-Factor Authentication"
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="Submit" onSubmit={handleSubmit} />
+          <Action.SubmitForm title={isSubmitting ? "Verifying…" : "Submit"} onSubmit={handleSubmit} />
           <Action
             title={isResending ? "Resending…" : "Resend Code"}
             onAction={handleResend}

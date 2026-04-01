@@ -4,6 +4,7 @@ import { logger } from "@chrismessina/raycast-logger";
 import { validateIpatoolInstallation, executeIpatoolCommand } from "./ipatool-validator";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { handleProcessErrorCleanup } from "./temp-file-manager";
+import { login as ipatoolLogin } from "./ipatool-auth";
 
 // Narrow, optional typing for Raycast's Keychain API to avoid 'any'
 type KeychainAPI = {
@@ -147,46 +148,63 @@ async function executeSecureIpatoolCommand(args: string[]): Promise<{ stdout: st
 
 /**
  * Logs in to Apple ID using ipatool and user preferences.
+ * Delegates to ipatool-auth.ts:login() which uses async spawn with real-time
+ * 2FA detection — correctly handles the case where ipatool exits 0 but 2FA is needed.
+ * @param appleId Optional Apple ID email
+ * @param password Optional password
  * @param twoFactorCode Optional 2FA code for two-factor authentication
  */
 export async function loginToAppleId(appleId?: string, password?: string, twoFactorCode?: string): Promise<void> {
-  // Get credentials from parameters or secure storage
+  const done = logger.time("loginToAppleId");
+
+  // Step 1: Resolve credentials
+  logger.step(1, "Resolving credentials");
   const email = appleId || (await getAppleIdFromStorage());
   const pass = password || (await getPasswordFromStorage());
 
   if (!email || !pass) {
+    done({ result: "missing_credentials" });
     throw new NeedsLoginError("Apple ID and password are required for authentication");
   }
 
-  const args = ["auth", "login", "-e", email, "-p", pass, "--format", "json", "--non-interactive"];
-
-  // Add 2FA code if provided
-  if (twoFactorCode) {
-    args.push("--auth-code", twoFactorCode);
-  }
-
+  // Step 2: Call ipatool login via async spawn
+  logger.step(2, "Calling ipatool login");
   try {
-    await executeSecureIpatoolCommand(args);
-    logger.log("Successfully authenticated with Apple ID");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const result = await ipatoolLogin({ email, password: pass, code: twoFactorCode });
 
-    logger.error("Login failed", { error: errorMessage });
+    // Step 3: Map result to error types
+    logger.step(3, "Login result", { success: result.success, needs2FA: result.needs2FA });
 
-    // Use precise ipatool error analysis with auth context
-    const errorAnalysis = analyzeIpatoolError(errorMessage, undefined, "auth");
-
-    // Check if it's a 2FA error
-    if (
-      errorAnalysis.userMessage.includes("Two-factor") ||
-      errorAnalysis.userMessage.includes("2FA") ||
-      errorMessage.includes("two-factor") ||
-      errorMessage.includes("2FA")
-    ) {
+    if (result.needs2FA) {
+      done({ result: "needs_2fa" });
       throw new Needs2FAError("Two-factor authentication code required");
     }
 
-    // Throw specific error based on analysis
+    if (!result.success) {
+      done({ result: "failed" });
+      throw new NeedsLoginError(result.message || "Authentication failed");
+    }
+
+    done({ result: "success" });
+    logger.info("[Auth] Successfully authenticated with Apple ID");
+  } catch (error) {
+    // Re-throw our own typed errors as-is
+    if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+      throw error;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("[Auth] Login failed", { error: errorMessage });
+
+    // Use error analysis for classification
+    const errorAnalysis = analyzeIpatoolError(errorMessage, undefined, "auth");
+
+    if (errorAnalysis.is2FARequired) {
+      done({ result: "needs_2fa" });
+      throw new Needs2FAError("Two-factor authentication code required");
+    }
+
+    done({ result: "error" });
     throw new Error(errorAnalysis.userMessage);
   }
 }
