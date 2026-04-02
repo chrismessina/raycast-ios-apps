@@ -20,14 +20,15 @@ ${iconUrl && `![App Icon](${iconUrl}?raycast-width=128&raycast-height=128)`}
 
 ${app.description || "No description available"}
 
-${app.screenshotUrls && app.screenshotUrls.length > 0
-      ? `
+${
+  app.screenshotUrls && app.screenshotUrls.length > 0
+    ? `
 ### Screenshots
 
 ${app.screenshotUrls.map((url, index) => `![Screenshot ${index + 1}](${url}?raycast-width=128)`).join(" ")}
 `
-      : ""
-    }
+    : ""
+}
     `;
 }
 

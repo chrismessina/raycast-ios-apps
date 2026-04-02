@@ -313,37 +313,6 @@ export async function validateDownloadPrereqs(
 }
 
 /**
- * Secure spawn-based execution to prevent command injection
- */
-function spawnAsync(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args);
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-
-    child.on("error", (error) => {
-      reject(error);
-    });
-  });
-}
-
-/**
  * Checks if an app is free (price is $0) and eligible for automatic purchase
  * @param price The price string from app details
  * @returns boolean - true if app is free and eligible for purchase
@@ -430,7 +399,11 @@ export async function purchaseApp(
       }
       if (typeof obj["error"] === "string") {
         const errStr = String(obj["error"]).toLowerCase();
-        if (errStr.includes("already purchased") || errStr.includes("already owned") || errStr.includes("license already exists")) {
+        if (
+          errStr.includes("already purchased") ||
+          errStr.includes("already owned") ||
+          errStr.includes("license already exists")
+        ) {
           succeeded = true;
           break;
         }
@@ -821,6 +794,10 @@ export async function downloadApp(
       const downloadFilePattern = `${bundleId}*.ipa`;
       registerTempFile(path.join(downloadsDir, downloadFilePattern));
 
+      // Clean up any leftover temp files from previous failed downloads
+      // This prevents "negative offset" errors when ipatool tries to resume from corrupted .ipa.tmp files
+      cleanupTempFilesByPattern(downloadsDir);
+
       // Create secure spawn process with timeout management
       const { maxDownloadTimeout, maxStallTimeout } = getConfig();
 
@@ -1005,6 +982,9 @@ export async function downloadApp(
                 if (!suppressHUD) {
                   await showHUD(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
                 }
+
+                // Clean up temp files before retrying to prevent "negative offset" errors
+                cleanupTempFilesByPattern(downloadsDir);
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 // Resolve with the retry result to properly propagate the Promise chain

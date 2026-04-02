@@ -48,7 +48,7 @@ export function AppleLoginForm({ onSubmit, initialEmail }: AppleLoginFormProps) 
       navigationTitle="Sign In to Apple ID"
       actions={
         <ActionPanel>
-          <Action.SubmitForm title={isSubmitting ? "Signing In…" : "Sign In"} onSubmit={handleSubmit} />
+          <Action.SubmitForm title={isSubmitting ? "Signing in…" : "Sign in"} onSubmit={handleSubmit} />
         </ActionPanel>
       }
     >
