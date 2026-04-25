@@ -318,6 +318,56 @@ function buildHighResolutionUrl(template: string, width: number, height: number)
 }
 
 /**
+ * Locate `shelfMapping` inside the serialized-server-data JSON, tolerating the
+ * different top-level wrappers Apple has used over time.
+ *
+ * Known shapes:
+ *   - Array<{ intent, data: { shelfMapping } }>                       (legacy)
+ *   - { data: { "0": { intent, data: { shelfMapping } } }, ... }      (current, observed 2026)
+ *
+ * Returns the first `shelfMapping` it finds, or undefined.
+ */
+function findShelfMapping(root: unknown): ShelfMapping | undefined {
+  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+
+  // Candidate "shelf nodes" — objects shaped like { data: { shelfMapping } }
+  const candidates: unknown[] = [];
+
+  if (Array.isArray(root)) {
+    candidates.push(...root);
+  } else if (isObject(root)) {
+    // Current shape: { data: { "0": shelfNode, ... } }
+    if (isObject(root.data)) {
+      candidates.push(...Object.values(root.data));
+    }
+    // Defensive fallback: maybe the root itself is the shelf node
+    candidates.push(root);
+  }
+
+  for (const node of candidates) {
+    if (!isObject(node)) continue;
+    const inner = node.data;
+    if (isObject(inner) && isObject(inner.shelfMapping)) {
+      return inner.shelfMapping as ShelfMapping;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Describe the top-level shape of an unknown JSON value for diagnostic logging.
+ */
+function describeShape(value: unknown): string {
+  if (Array.isArray(value)) return `array(len=${value.length})`;
+  if (value === null) return "null";
+  if (typeof value !== "object") return typeof value;
+  return `object{${Object.keys(value as Record<string, unknown>)
+    .slice(0, 8)
+    .join(",")}}`;
+}
+
+/**
  * Extract screenshots from the serialized-server-data JSON in the App Store HTML
  *
  * This function parses the modern App Store web page structure that uses a JSON blob
@@ -356,25 +406,25 @@ export function extractScreenshotsFromShoeboxJson(html: string): ScreenshotInfo[
     }
 
     // STEP 2: Parse the JSON structure
-    let serverData: Array<{ intent?: unknown; data?: { shelfMapping?: ShelfMapping } }>;
+    // Apple has shipped at least two top-level shapes for this blob:
+    //   (legacy)  Array<{ intent, data: { shelfMapping } }>
+    //   (current) { data: { "0": { intent, data: { shelfMapping } }, ... }, userTokenHash }
+    // We tolerate both, plus a few near-variants, so the scraper keeps working
+    // through Apple's redesigns.
+    let serverData: unknown;
     try {
-      const jsonContent = serverDataMatch[1].trim();
-      serverData = JSON.parse(jsonContent);
-
-      // Validate that we have a proper array
-      if (!Array.isArray(serverData) || serverData.length === 0) {
-        logger.log(`[Scraper] Invalid JSON data in serialized-server-data: not an array or empty`);
-        return screenshots;
-      }
+      serverData = JSON.parse(serverDataMatch[1].trim());
     } catch (error) {
       logger.error(`[Scraper] Error parsing serialized-server-data JSON content:`, error);
       return screenshots;
     }
 
-    // STEP 3: Extract shelf mapping with screenshot data
-    const shelfMapping = serverData[0]?.data?.shelfMapping;
+    // STEP 3: Locate the shelfMapping, regardless of wrapper shape
+    const shelfMapping = findShelfMapping(serverData);
     if (!shelfMapping) {
-      logger.log(`[Scraper] No shelfMapping found in serialized-server-data`);
+      logger.log(
+        `[Scraper] No shelfMapping found in serialized-server-data (top-level keys: ${describeShape(serverData)})`,
+      );
       return screenshots;
     }
 

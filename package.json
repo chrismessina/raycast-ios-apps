@@ -43,66 +43,22 @@
     {
       "name": "search-apps",
       "title": "Search iOS Apps",
-      "description": "Search for iOS apps on the App Store by name or keyword",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "string",
-          "description": "The search query for finding iOS apps",
-          "required": true
-        },
-        {
-          "name": "limit",
-          "type": "number",
-          "description": "Maximum number of results to return (default: 10, max: 20)",
-          "required": false
-        }
-      ]
+      "description": "Search for iOS apps on the App Store by name or keyword"
     },
     {
       "name": "get-app-details",
       "title": "Get iOS App Details",
-      "description": "Get detailed information about an iOS app by name or search term",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "string",
-          "description": "The name or search term for the iOS app",
-          "required": true
-        },
-        {
-          "name": "bundleId",
-          "type": "string",
-          "description": "Optional bundle ID if known (will skip search step)",
-          "required": false
-        }
-      ]
+      "description": "Get detailed information about an iOS app by name or search term"
     },
     {
       "name": "download-app",
       "title": "Download iOS App",
-      "description": "Download an iOS app",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "string",
-          "description": "The name or search term for the iOS app",
-          "required": true
-        }
-      ]
+      "description": "Download an iOS app"
     },
     {
       "name": "get-current-version",
       "title": "Get Current Version",
-      "description": "Lookup an app's current version.",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "string",
-          "description": "The name or search term for the iOS app",
-          "required": true
-        }
-      ]
+      "description": "Lookup an app's current version."
     },
     {
       "name": "download-app-screenshots",

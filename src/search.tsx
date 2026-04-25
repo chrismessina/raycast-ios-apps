@@ -118,7 +118,7 @@ export default function Search() {
         <List.EmptyView
           title="Type Query to Search"
           description="Search for apps by name, developer, or bundle Id."
-          icon="no-view.png"
+          icon="no-view@256.png"
         />
       </List>
     );
