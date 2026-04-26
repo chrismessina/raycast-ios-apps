@@ -92,7 +92,7 @@ export default function Search() {
                 key={`${search.query}-${index}`}
                 title={search.query}
                 subtitle={new Date(search.timestamp).toLocaleDateString()}
-                icon={{ source: "magnifying-glass.svg" }}
+                icon={Icon.MagnifyingGlass}
                 actions={
                   <ActionPanel>
                     <Action title="Search" onAction={() => setSearchText(search.query)} icon={Icon.MagnifyingGlass} />

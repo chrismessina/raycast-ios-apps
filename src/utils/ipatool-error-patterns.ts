@@ -93,11 +93,19 @@ export function analyzeIpatoolError(
   // Session expired / password token stale — ipatool FailureType 2034 or Apple's
   // "Your password has changed" response. The Apple ID is correct but the stored
   // token is invalid. Should trigger re-login, NOT credential wipe.
+  //
+  // The `unsupported protocol scheme ""` / `Post "": failed to make round trip`
+  // signature is ipatool issue majd/ipatool#449: Apple silently strips the
+  // purchase URL from its response when the session needs re-verification
+  // (e.g. after IP change). Symptom is identical to a session expiry — confirmed
+  // resolution is `ipatool auth login` again. Treat as session_expired so the
+  // download flow surfaces the sign-in form.
   if (
     fullMessage.includes("your password has changed") ||
     fullMessage.includes("password token is expired") ||
     fullMessage.includes("password token expired") ||
-    (fullMessage.includes("failuretype") && fullMessage.includes("2034"))
+    (fullMessage.includes("failuretype") && fullMessage.includes("2034")) ||
+    (fullMessage.includes("unsupported protocol scheme") && fullMessage.includes('post ""'))
   ) {
     return {
       isAuthError: true,
