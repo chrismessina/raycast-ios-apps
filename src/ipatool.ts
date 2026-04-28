@@ -47,6 +47,110 @@ interface ValidationResult {
 }
 
 /**
+ * Result of the existing-download lookup.
+ *
+ *   none      — no matching file in the downloads directory
+ *   overwrite — a matching file exists and the user confirmed overwrite
+ *   skipped   — a matching file exists and the user cancelled
+ */
+export type ExistingDownloadCheck = { kind: "none" } | { kind: "overwrite" } | { kind: "skipped" };
+
+/**
+ * Look for an existing IPA in the downloads directory that matches this app and,
+ * if found, prompt the user to overwrite. Runs before any progress UI so the
+ * caller can decide whether to start the download flow at all.
+ *
+ * Match strategy mirrors the rename logic at the end of a successful download:
+ * exact filenames first ({bundleId}.ipa, {AppName} {Version}.ipa, {AppName}.ipa),
+ * then a fuzzy fallback on bundleId substring or "{name} " prefix.
+ */
+export async function checkForExistingDownload(
+  bundleId: string,
+  appName?: string,
+  appVersion?: string,
+): Promise<ExistingDownloadCheck> {
+  const displayName = appName || bundleId;
+  const downloadsDir = getDownloadsDirectory();
+
+  const sanitizedName = appName ? appName.replace(/[/\\?%*:|"<>]/g, "-") : undefined;
+  const possibleFilenames = [
+    `${bundleId}.ipa`,
+    sanitizedName && appVersion ? `${sanitizedName} ${appVersion}.ipa` : undefined,
+    sanitizedName ? `${sanitizedName}.ipa` : undefined,
+  ].filter(Boolean) as string[];
+
+  let existingFile: string | null = null;
+  let existingFileSize = 0;
+
+  for (const filename of possibleFilenames) {
+    const filePath = path.join(downloadsDir, filename);
+    try {
+      const stats = await fs.promises.stat(filePath);
+      existingFile = filePath;
+      existingFileSize = stats.size;
+      logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`);
+      break;
+    } catch {
+      // File doesn't exist, continue checking
+    }
+  }
+
+  if (!existingFile) {
+    try {
+      const files = await fs.promises.readdir(downloadsDir);
+      const lowerName = sanitizedName?.toLowerCase();
+      const allowFuzzy = lowerName && lowerName.length >= 3;
+      const similarFiles = files.filter((file) => {
+        if (!file.endsWith(".ipa")) return false;
+        if (file.includes(bundleId)) return true;
+        if (allowFuzzy && lowerName) {
+          return file.toLowerCase().startsWith(lowerName + " ");
+        }
+        return false;
+      });
+
+      if (similarFiles.length > 0) {
+        const filePath = path.join(downloadsDir, similarFiles[0]);
+        try {
+          const stats = await fs.promises.stat(filePath);
+          existingFile = filePath;
+          existingFileSize = stats.size;
+          logger.log(
+            `[validation] Found similar existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`,
+          );
+        } catch (error) {
+          logger.warn(`[validation] Could not stat similar file:`, error);
+        }
+      }
+    } catch (error) {
+      logger.warn(`[validation] Could not read downloads directory:`, error);
+    }
+  }
+
+  if (!existingFile) {
+    return { kind: "none" };
+  }
+
+  const existingFileMB = Math.ceil(existingFileSize / BYTES_PER_MB);
+  const confirmed = await confirmAlert({
+    title: "File Already Exists",
+    message: `A file for "${displayName}" already exists (${existingFileMB} MB).\n\nDo you want to overwrite it?`,
+    primaryAction: {
+      title: "Overwrite",
+      style: Alert.ActionStyle.Destructive,
+    },
+  });
+
+  if (!confirmed) {
+    logger.log(`[validation] Skipped download: file already exists (${path.basename(existingFile)})`);
+    return { kind: "skipped" };
+  }
+
+  logger.log(`[validation] ✓ User confirmed overwrite of existing file`);
+  return { kind: "overwrite" };
+}
+
+/**
  * Interface for file integrity verification results
  */
 interface IntegrityResult {
@@ -66,7 +170,6 @@ export async function validateDownloadPrereqs(
   bundleId: string,
   appName?: string,
   expectedSizeBytes?: number,
-  appVersion?: string,
 ): Promise<ValidationResult> {
   const displayName = appName || bundleId;
   logger.log(`[validation] Starting prerequisite validation for ${displayName}`);
@@ -123,88 +226,9 @@ export async function validateDownloadPrereqs(
       // Don't fail validation if we can't check disk space, just warn
     }
 
-    // 3. Check for pre-existing target file and prompt for overwrite
-    const sanitizedName = appName ? appName.replace(/[/\\?%*:|"<>]/g, "-") : undefined;
-    const possibleFilenames = [
-      `${bundleId}.ipa`,
-      sanitizedName && appVersion ? `${sanitizedName} ${appVersion}.ipa` : undefined,
-      sanitizedName ? `${sanitizedName}.ipa` : undefined,
-    ].filter(Boolean) as string[];
-
-    let existingFile: string | null = null;
-    let existingFileSize = 0;
-
-    // Prefer exact filename matches only
-    for (const filename of possibleFilenames) {
-      const filePath = path.join(downloadsDir, filename);
-      try {
-        const stats = await fs.promises.stat(filePath);
-        existingFile = filePath;
-        existingFileSize = stats.size;
-        logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`);
-        break;
-      } catch {
-        // File doesn't exist, continue checking
-      }
-    }
-
-    // As a last resort, look for very similar files but avoid false positives on short names
-    if (!existingFile) {
-      const files = await fs.promises.readdir(downloadsDir);
-      const lowerName = sanitizedName?.toLowerCase();
-      const allowFuzzy = lowerName && lowerName.length >= 3; // avoid matching names like "X"
-      const similarFiles = files.filter((file) => {
-        if (!file.endsWith(".ipa")) return false;
-        if (file.includes(bundleId)) return true; // bundleId is precise
-        if (allowFuzzy && lowerName) {
-          // start-with is safer than contains for names
-          return file.toLowerCase().startsWith(lowerName + " ");
-        }
-        return false;
-      });
-
-      if (similarFiles.length > 0) {
-        const filePath = path.join(downloadsDir, similarFiles[0]);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          existingFile = filePath;
-          existingFileSize = stats.size;
-          logger.log(
-            `[validation] Found similar existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`,
-          );
-        } catch (error) {
-          logger.warn(`[validation] Could not stat similar file:`, error);
-        }
-      }
-    }
-
-    if (existingFile) {
-      const existingFileMB = Math.ceil(existingFileSize / BYTES_PER_MB);
-      const confirmed = await confirmAlert({
-        title: "File Already Exists",
-        message: `A file for "${displayName}" already exists (${existingFileMB} MB).\n\nDo you want to overwrite it?`,
-        primaryAction: {
-          title: "Overwrite",
-          style: Alert.ActionStyle.Destructive,
-        },
-      });
-
-      if (!confirmed) {
-        const errorMsg = "App already exists and won't be  downloaded again.";
-        logger.log(`[validation] Skipped download: file already exists (${path.basename(existingFile)})`);
-
-        await showToast({
-          style: Toast.Style.Animated,
-          title: "App already exists and won't be  downloaded again.",
-        });
-
-        return { isValid: false, errorMessage: errorMsg, cancelled: true };
-      }
-
-      logger.log(`[validation] ✓ User confirmed overwrite of existing file`);
-    } else {
-      logger.log(`[validation] ✓ No existing file conflict`);
-    }
+    // 3. Existing-file detection has moved upstream into checkForExistingDownload()
+    //    so the user is prompted before any progress UI is shown. By the time we
+    //    reach this validator, the caller has already decided to overwrite.
 
     // 4. Check network connectivity (try multiple methods with graceful fallbacks)
     try {
@@ -699,7 +723,7 @@ export async function downloadApp(
         logger.log(`[validation] Using provided expected app size: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`);
       }
 
-      const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes, appVersion);
+      const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes);
       if (!validation.isValid) {
         const msg = validation.errorMessage || "Prerequisite validation failed";
         if (validation.cancelled) {

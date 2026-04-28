@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api";
-import { downloadApp } from "../ipatool";
+import { downloadApp, checkForExistingDownload } from "../ipatool";
 import { handleDownloadError, handleAuthError } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
@@ -171,6 +171,22 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         throw error;
       }
 
+      // Check for an existing IPA in the downloads directory and prompt for
+      // overwrite BEFORE showing any progress UI. If the user cancels here, we
+      // return early without ever pretending a download started.
+      const existing = await checkForExistingDownload(bundleId, name, version);
+      if (existing.kind === "skipped") {
+        logger.log(`[useAppDownload] User skipped download for ${name} (${bundleId}); existing file kept.`);
+        if (showHudMessages) {
+          await showToast({
+            style: Toast.Style.Success,
+            title: "Download Skipped",
+            message: `Existing file for ${name} was kept.`,
+          });
+        }
+        return null;
+      }
+
       // Create a toast for progress tracking (similar to video downloader)
       if (showHudMessages) {
         if (authNavigation) {
@@ -285,15 +301,14 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           return undefined;
         }
       } else if (filePath === null) {
-        // User cancelled (e.g., existing file) – already shown an informational toast in validation flow.
-        logger.log(
-          `[useAppDownload] Download cancelled by user for ${name} (${bundleId}). Suppressing failure HUD/toast.`,
-        );
-        // Update progress toast if it exists
+        // downloadApp() returns null on a soft non-error stop (e.g. authentication
+        // not established by the time the download starts). The existing-file
+        // skip path now short-circuits earlier and never reaches downloadApp().
+        logger.log(`[useAppDownload] Download did not run for ${name} (${bundleId}); auth or prereq returned null.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Animated;
-          progressToast.title = "Download Cancelled";
-          progressToast.message = "File already exists";
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Download Did Not Start";
+          progressToast.message = "Authentication or prerequisites not satisfied.";
         }
         return null;
       } else {
