@@ -946,10 +946,15 @@ export async function downloadApp(
             });
           }
 
-          // Handle process completion
-          child.on("close", async (code) => {
+          // Handle process completion. Node emits (code, signal) on close —
+          // when the process exits normally, `code` is the exit status and
+          // `signal` is null; when it's killed by a signal (timeout watchdog,
+          // stall watchdog, OS kill, Raycast reload), `code` is null and
+          // `signal` carries the signal name (e.g. "SIGTERM"). We surface that
+          // so the user-facing error is actionable instead of "code null".
+          child.on("close", async (code, signal) => {
             clearAllTimers();
-            logger.log(`[ipatool] Download process exited with code ${code}`);
+            logger.log(`[ipatool] Download process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
 
             // Only log full output in development or when there's an error
             if (process.env.NODE_ENV === "development" || code !== 0) {
@@ -958,11 +963,19 @@ export async function downloadApp(
             }
 
             if (code !== 0) {
-              logger.error(`[ipatool] Download failed with code ${code}. Error: ${stderr}`);
+              logger.error(
+                `[ipatool] Download failed with code ${code}${signal ? ` (signal: ${signal})` : ""}. Error: ${stderr}`,
+              );
               logger.error(`[ipatool] Full stdout content: "${stdout}"`);
 
-              // Parse JSON output from stdout to get specific error information
-              const errorMessage = `Process exited with code ${code}`;
+              // Parse JSON output from stdout to get specific error information.
+              // If the process was killed by a signal, code is null and we
+              // describe what actually happened instead of "code null".
+              const errorMessage = signal
+                ? signal === "SIGTERM"
+                  ? `Download stopped before completing (terminated). This usually means it stalled, timed out, or was interrupted.`
+                  : `Download stopped before completing (signal: ${signal}).`
+                : `Process exited with code ${code}`;
               let specificError = "";
 
               try {
