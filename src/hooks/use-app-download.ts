@@ -17,6 +17,14 @@ const globalDownloadState = {
   activeOpId: null as string | null,
 };
 
+// Tracks how many times the sign-in form has been completed within a single
+// download operation. ipatool's `unsupported protocol scheme` purchase failure
+// (majd/ipatool#449) is classified as session_expired, which pushes the sign-in
+// form — but for some apps/accounts re-login does NOT clear it. Without a cap,
+// the user gets bounced to sign-in indefinitely. After one completed re-login,
+// a still-failing auth error is treated as terminal instead.
+const authAttemptsByOp = new Map<string, number>();
+
 /**
  * Hook for downloading an app
  * @param authNavigation Optional auth navigation helpers for form redirects
@@ -110,6 +118,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 try {
                   logger.log(`[useAppDownload] Login callback invoked. Re-checking auth...`);
                   await ensureAuthenticated();
+                  authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                   logger.log(`[useAppDownload] Auth OK after login. Resuming download for ${name} (${bundleId})`);
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                   await handleDownload(
@@ -136,6 +145,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 try {
                   logger.log(`[useAppDownload] 2FA callback invoked. Re-checking auth...`);
                   await ensureAuthenticated();
+                  authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                   logger.log(`[useAppDownload] Auth OK after 2FA. Resuming download for ${name} (${bundleId})`);
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                   await handleDownload(
@@ -327,6 +337,25 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     } catch (error) {
       // Check if this is a specific authentication error that should be handled by the form flow
       if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+        // Loop breaker: if the user already completed a sign-in during this
+        // operation and we STILL get an auth error, re-login isn't fixing it
+        // (ipatool#449 — Apple rejects the purchase despite a valid session).
+        // Surface a terminal error instead of bouncing to the form again.
+        if ((authAttemptsByOp.get(operationId) ?? 0) > 0) {
+          logger.error(
+            `[useAppDownload] Auth error persists after re-login for ${name} (${bundleId}); not re-prompting.`,
+          );
+          if (progressToast) {
+            progressToast.style = Toast.Style.Failure;
+            progressToast.title = "Could Not Download";
+            progressToast.message =
+              "Apple rejected the request even though you're signed in. This can happen for some apps — please try again later.";
+          } else if (showHudMessages && !authNavigation) {
+            await showHUD("Could Not Download");
+          }
+          return undefined;
+        }
+
         // Don't show failure toast for authentication errors
         // The form flow will handle these
         logger.log(
@@ -346,6 +375,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
               try {
                 logger.log(`[useAppDownload] Login callback (catch) invoked. Re-checking auth...`);
                 await ensureAuthenticated();
+                authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                 logger.log(`[useAppDownload] Auth OK after login (catch). Resuming download for ${name} (${bundleId})`);
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                 await handleDownload(
@@ -373,6 +403,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
               try {
                 logger.log(`[useAppDownload] 2FA callback (catch) invoked. Re-checking auth...`);
                 await ensureAuthenticated();
+                authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                 logger.log(`[useAppDownload] Auth OK after 2FA (catch). Resuming download for ${name} (${bundleId})`);
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                 await handleDownload(
@@ -492,6 +523,8 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         globalDownloadState.isDownloading = false;
         globalDownloadState.currentApp = null;
         globalDownloadState.activeOpId = null;
+        // Operation is fully finished — forget its auth-attempt count.
+        authAttemptsByOp.delete(operationId);
       }
 
       // Update local state

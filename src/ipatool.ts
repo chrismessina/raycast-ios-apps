@@ -12,7 +12,7 @@ import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import { ensureAuthenticated } from "./utils/auth";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
-import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
+import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
 import { extractFilePath, safeJsonParse } from "./utils/common";
 import {
   convertITunesResultToAppDetails,
@@ -356,16 +356,30 @@ export function isFreeApp(price?: string): boolean {
 }
 
 /**
+ * Result of an app license purchase attempt.
+ *
+ * On failure, `errorType` carries the analyzed ipatool error category so the
+ * caller can produce an accurate message (e.g. rate-limited vs. a real
+ * restriction) instead of guessing. Auth failures are not represented here —
+ * those throw NeedsLoginError instead.
+ */
+export interface PurchaseResult {
+  success: boolean;
+  errorType?: IpatoolErrorInfo["errorType"];
+  userMessage?: string;
+}
+
+/**
  * Attempts to purchase an app using ipatool
  * @param bundleId The bundle identifier of the app
  * @param appName Optional app name for logging
- * @returns Promise<boolean> - true if purchase was successful, false otherwise
+ * @returns Promise<PurchaseResult> - success flag plus error classification on failure
  */
 export async function purchaseApp(
   bundleId: string,
   appName?: string,
   options?: { suppressHUD?: boolean },
-): Promise<boolean> {
+): Promise<PurchaseResult> {
   const displayName = appName || bundleId;
   const done = logger.time(`purchaseApp:${displayName}`);
   logger.log(`[ipatool] Attempting to purchase app: ${displayName} (${bundleId})`);
@@ -450,7 +464,7 @@ export async function purchaseApp(
     if (!suppressHUD) {
       await showHUD(`Successfully purchased ${displayName}`);
     }
-    return true;
+    return { success: true };
   }
 
   // Purchase failed — analyze the error from stdout JSON
@@ -467,7 +481,7 @@ export async function purchaseApp(
   }
 
   done({ result: "failed", errorType: errorAnalysis.errorType });
-  return false;
+  return { success: false, errorType: errorAnalysis.errorType, userMessage: errorAnalysis.userMessage };
 }
 
 /**
@@ -1142,9 +1156,9 @@ export async function downloadApp(
                   );
 
                   try {
-                    const purchaseSuccess = await purchaseApp(bundleId, appName, options);
+                    const purchaseResult = await purchaseApp(bundleId, appName, options);
 
-                    if (purchaseSuccess) {
+                    if (purchaseResult.success) {
                       logger.log(
                         `[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`,
                       );
@@ -1167,14 +1181,22 @@ export async function downloadApp(
                       return;
                     } else {
                       logger.log(
-                        `[ipatool] License purchase failed for ${appName || bundleId}. Proceeding with error handling.`,
+                        `[ipatool] License purchase failed for ${appName || bundleId} (${purchaseResult.errorType}). Proceeding with error handling.`,
                       );
                       if (!suppressHUD) {
                         await showHUD(`Failed to obtain license for ${appName || bundleId}`);
                       }
 
-                      // Update the error message to be more specific about license purchase failure
-                      finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to authentication issues or App Store restrictions.`;
+                      // Surface the purchase error's own classification rather
+                      // than guessing. Rate limiting (ipatool#480 plist error)
+                      // is the common case for some apps and is transient.
+                      if (purchaseResult.errorType === "rate_limited") {
+                        finalErrorMessage = `Could not get a license for "${appName || bundleId}" — Apple is rate-limiting requests. Please wait a few minutes and try again.`;
+                      } else if (purchaseResult.userMessage) {
+                        finalErrorMessage = `Could not get a license for "${appName || bundleId}": ${purchaseResult.userMessage}`;
+                      } else {
+                        finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to App Store restrictions.`;
+                      }
                     }
                   } catch (purchaseError) {
                     // If purchase failed due to auth (e.g. expired token, password changed),

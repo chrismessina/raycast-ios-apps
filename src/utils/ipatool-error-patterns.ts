@@ -302,6 +302,14 @@ export function analyzeIpatoolError(
   }
 
   // Rate limiting (HTTP 429 / too many requests)
+  //
+  // The `failed to unmarshal xml: plist: error parsing text property list`
+  // signature is ipatool issue majd/ipatool#480: when Apple rate-limits the
+  // login/purchase endpoint it returns a non-plist body (an HTML error page),
+  // which ipatool then fails to parse. It surfaces on `auth login` and
+  // `purchase` alike. It is NOT an auth failure — re-entering credentials does
+  // nothing — so it must classify as rate_limited (isAuthError: false) to
+  // avoid bouncing the user to the sign-in form.
   if (
     fullMessage.includes("too many requests") ||
     fullMessage.includes("rate limit") ||
@@ -309,14 +317,16 @@ export function analyzeIpatoolError(
     fullMessage.includes("status code 429") ||
     fullMessage.includes("http 429") ||
     fullMessage.includes("request limit exceeded") ||
-    fullMessage.includes("exceeded your request limit")
+    fullMessage.includes("exceeded your request limit") ||
+    fullMessage.includes("failed to unmarshal xml") ||
+    fullMessage.includes("error parsing text property list")
   ) {
     return {
       isAuthError: false,
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Rate limited by Apple. Too many requests in a short time. Please wait a minute and try again.",
+      userMessage: "Rate limited by Apple. Too many requests in a short time. Please wait a few minutes and try again.",
       suggestedAction: "Retry",
       errorType: "rate_limited",
     };
