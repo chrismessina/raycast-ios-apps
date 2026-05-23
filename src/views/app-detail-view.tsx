@@ -39,7 +39,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
               showFailureToast(new Error("Bundle ID is missing"), { title: "Cannot download app" });
               return Promise.resolve(null);
             }
-            return downloadApp(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes);
+            return downloadApp(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes, app);
           }}
           showViewDetails={false}
           isFavorited={isFavorited}

@@ -90,6 +90,36 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     let progressToast: Toast | undefined;
 
     try {
+      // Pre-release / Coming Soon check.
+      //
+      // When the iTunes API reports a future releaseDate the app is listed but
+      // cannot be downloaded — Apple's purchase API returns a generic
+      // "temporarily unavailable" error that previously surfaced as misleading
+      // "App Store maintenance". Bail out early with an accurate message
+      // before pre-auth (no point bothering the user for credentials for an
+      // app they can't get yet).
+      if (appDetails?.releaseDate) {
+        const releaseAt = new Date(appDetails.releaseDate);
+        if (!isNaN(releaseAt.getTime()) && releaseAt > new Date()) {
+          const formattedDate = releaseAt.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          logger.log(
+            `[useAppDownload] Pre-release skip: ${name} (${bundleId}) — releaseDate ${appDetails.releaseDate} is in the future.`,
+          );
+          if (showHudMessages) {
+            await showToast({
+              style: Toast.Style.Failure,
+              title: "Not Released Yet",
+              message: `${name} is expected ${formattedDate}.`,
+            });
+          }
+          return null;
+        }
+      }
+
       // Pre-authenticate first so we can push forms without closing the window
       logger.log(
         `[useAppDownload] Pre-authentication start for ${name} (${bundleId}) – showHudMessages=${showHudMessages}`,
@@ -451,11 +481,13 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 ? "Rate Limited"
                 : errorAnalysis.errorType === "maintenance"
                   ? "App Store Maintenance"
-                  : errorAnalysis.errorType === "regional_restriction"
-                    ? "Region Restricted"
-                    : errorAnalysis.errorType === "account_restriction"
-                      ? "Account Restricted"
-                      : "Download Failed";
+                  : errorAnalysis.errorType === "not_yet_released"
+                    ? "Not Released Yet"
+                    : errorAnalysis.errorType === "regional_restriction"
+                      ? "Region Restricted"
+                      : errorAnalysis.errorType === "account_restriction"
+                        ? "Account Restricted"
+                        : "Download Failed";
 
         // Update progress toast if it exists
         if (progressToast) {

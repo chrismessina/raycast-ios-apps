@@ -40,6 +40,7 @@ export interface IpatoolErrorInfo {
     | "rate_limited"
     | "session_expired"
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
+    | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
     | "regional_restriction"
     | "account_restriction"
     | "generic";
@@ -329,6 +330,23 @@ export function analyzeIpatoolError(
       userMessage: "Rate limited by Apple. Too many requests in a short time. Please wait a few minutes and try again.",
       suggestedAction: "Retry",
       errorType: "rate_limited",
+    };
+  }
+
+  // Pre-release / Coming Soon apps. Apple's purchase API returns
+  //   failed to purchase item with param 'GAME': item is temporarily unavailable
+  // for apps that exist in the App Store but haven't been released yet (e.g.
+  // "Coming Soon — Expected Jul 1, 2026"). Without a specific match this would
+  // fall into the generic maintenance block below and tell the user the App
+  // Store is down, which is misleading.
+  if (fullMessage.includes("failed to purchase item with param") && fullMessage.includes("temporarily unavailable")) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "This app isn't available for download yet. It may be a pre-release or Coming Soon title.",
+      errorType: "not_yet_released",
     };
   }
 
