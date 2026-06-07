@@ -9,7 +9,7 @@ import { logger } from "@chrismessina/raycast-logger";
 
 import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { ensureAuthenticated } from "./utils/auth";
+import { ensureAuthenticated, NeedsLoginError, Needs2FAError, NotYetReleasedError } from "./utils/auth";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
@@ -476,8 +476,18 @@ export async function purchaseApp(
     logger.error(`[ipatool] Auth error during purchase: ${errorAnalysis.userMessage}`);
     done({ result: "auth_error" });
     // Throw so the download flow can catch this and redirect to sign-in
-    const { NeedsLoginError } = await import("./utils/auth");
     throw new NeedsLoginError(errorAnalysis.userMessage);
+  }
+
+  // Pre-release / Coming Soon apps: throw a typed error so the hook can show
+  // the specific "Not Released Yet" toast without re-parsing a wrapped string.
+  // The downstream re-analysis loses the source signature once it's wrapped
+  // into "Could not get a license for X: ...", so a typed error is the only
+  // reliable way to carry the classification across the boundary.
+  if (errorAnalysis.errorType === "not_yet_released") {
+    logger.error(`[ipatool] Pre-release / Coming Soon detected during purchase: ${errorAnalysis.userMessage}`);
+    done({ result: "not_yet_released" });
+    throw new NotYetReleasedError(errorAnalysis.userMessage);
   }
 
   done({ result: "failed", errorType: errorAnalysis.errorType });
@@ -1207,6 +1217,14 @@ export async function downloadApp(
                       return;
                     }
 
+                    // Pre-release / Coming Soon: propagate the typed error unchanged so the
+                    // hook can render the specific "Not Released Yet" toast.
+                    if (purchaseError instanceof NotYetReleasedError) {
+                      logger.log(`[ipatool] Pre-release surfaced during license purchase for ${appName || bundleId}`);
+                      reject(purchaseError);
+                      return;
+                    }
+
                     logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
                     if (!suppressHUD) {
                       await showHUD(`License purchase error for ${appName || bundleId}`);
@@ -1222,10 +1240,12 @@ export async function downloadApp(
 
               // Route to appropriate error handler based on analysis
               if (errorAnalysis.isAuthError) {
-                // Import the error types if not already imported at the top
-                const { NeedsLoginError } = await import("./utils/auth");
                 // Reject with NeedsLoginError to let the hook handle it with navigation
                 reject(new NeedsLoginError(finalErrorMessage));
+              } else if (errorAnalysis.errorType === "not_yet_released") {
+                // Pre-release / Coming Soon: surface as typed error so the hook can
+                // show "Not Released Yet" without re-parsing the wrapped message.
+                reject(new NotYetReleasedError(finalErrorMessage));
               } else {
                 // Pass shouldThrow=false since we're inside an async callback and will reject() below
                 // Throwing here would cause an uncaught exception that crashes the extension
@@ -1480,9 +1500,6 @@ export async function downloadApp(
         });
     });
   } catch (error) {
-    // Import the error types if not already imported
-    const { NeedsLoginError, Needs2FAError } = await import("./utils/auth");
-
     // Let authentication errors bubble up to be handled by the calling code
     if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
       logger.error(`[ipatool] Authentication error during download: ${error.message}`);

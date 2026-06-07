@@ -2,9 +2,9 @@ import { useState } from "react";
 import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api";
 import { downloadApp, checkForExistingDownload } from "../ipatool";
 import { handleDownloadError, handleAuthError } from "../utils/error-handler";
-import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
+import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
-import { NeedsLoginError, Needs2FAError, ensureAuthenticated } from "../utils/auth";
+import { NeedsLoginError, Needs2FAError, NotYetReleasedError, ensureAuthenticated } from "../utils/auth";
 import { logger } from "@chrismessina/raycast-logger";
 import { useDownloadHistory } from "./use-download-history";
 import type { AppDetails } from "../types";
@@ -24,6 +24,20 @@ const globalDownloadState = {
 // the user gets bounced to sign-in indefinitely. After one completed re-login,
 // a still-failing auth error is treated as terminal instead.
 const authAttemptsByOp = new Map<string, number>();
+
+// Map an analyzed ipatool error type to the short toast/HUD title shown to the
+// user. Auth errors are handled separately (they jump to the sign-in form
+// instead of producing a generic toast). Anything not in this map falls back
+// to "Download Failed".
+const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> = {
+  network: "Network Error",
+  app_not_found: "App Not Found",
+  rate_limited: "Rate Limited",
+  maintenance: "App Store Maintenance",
+  not_yet_released: "Not Released Yet",
+  regional_restriction: "Region Restricted",
+  account_restriction: "Account Restricted",
+};
 
 /**
  * Hook for downloading an app
@@ -89,6 +103,15 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     let releaseLock = true;
     let progressToast: Toast | undefined;
 
+    // Single closure used by every "resume after auth" callback below. Capturing
+    // the full call shape here (including expectedSizeBytes + appDetails) is the
+    // forcing function: when handleDownload gains another parameter, exactly one
+    // place needs to know about it. The five retry sites used to each repeat the
+    // 8-arg call by hand, which is how appDetails went missing on resumes until
+    // we noticed and threaded it through.
+    const resumeDownload = () =>
+      handleDownload(bundleId, name, version, price, showHudMessages, operationId, expectedSizeBytes, appDetails);
+
     try {
       // Pre-release / Coming Soon check.
       //
@@ -101,10 +124,15 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (appDetails?.releaseDate) {
         const releaseAt = new Date(appDetails.releaseDate);
         if (!isNaN(releaseAt.getTime()) && releaseAt > new Date()) {
-          const formattedDate = releaseAt.toLocaleDateString(undefined, {
+          // Apple's convention for new-app release timestamps is midnight Pacific
+          // (encoded as 07:00Z PDT / 08:00Z PST). Render in Los Angeles time so
+          // users west of Pacific (Hawaii, Alaska, Samoa) don't see the prior
+          // calendar day in the "Coming Soon" message.
+          const formattedDate = releaseAt.toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
             year: "numeric",
+            timeZone: "America/Los_Angeles",
           });
           logger.log(
             `[useAppDownload] Pre-release skip: ${name} (${bundleId}) — releaseDate ${appDetails.releaseDate} is in the future.`,
@@ -138,7 +166,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             `[useAppDownload] Pre-authentication indicates auth required (${error instanceof NeedsLoginError ? "login" : "2FA"}). Suppressing HUD and pushing form inline.`,
           );
 
-          const downloadParams = { bundleId, name, version, price };
           if (authNavigation) {
             // Keep the global lock while we wait for the inline auth flow to complete
             releaseLock = false;
@@ -151,14 +178,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                   authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                   logger.log(`[useAppDownload] Auth OK after login. Resuming download for ${name} (${bundleId})`);
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
-                  await handleDownload(
-                    downloadParams.bundleId,
-                    downloadParams.name,
-                    downloadParams.version,
-                    downloadParams.price,
-                    showHudMessages,
-                    operationId,
-                  );
+                  await resumeDownload();
                 } catch (authError) {
                   const msg = authError instanceof Error ? authError.message : String(authError);
                   const info = analyzeIpatoolError(msg);
@@ -178,14 +198,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                   authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                   logger.log(`[useAppDownload] Auth OK after 2FA. Resuming download for ${name} (${bundleId})`);
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
-                  await handleDownload(
-                    downloadParams.bundleId,
-                    downloadParams.name,
-                    downloadParams.version,
-                    downloadParams.price,
-                    showHudMessages,
-                    operationId,
-                  );
+                  await resumeDownload();
                 } catch (authError) {
                   const msg = authError instanceof Error ? authError.message : String(authError);
                   const info = analyzeIpatoolError(msg);
@@ -365,6 +378,22 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         return undefined;
       }
     } catch (error) {
+      // Pre-release / Coming Soon caught from ipatool. Typed error carries the
+      // classification across the boundary so we don't have to re-parse a
+      // wrapped string. Surface a clean "Not Released Yet" toast and stop —
+      // this is an expected state, not a failure of the user's setup.
+      if (error instanceof NotYetReleasedError) {
+        logger.log(`[useAppDownload] Pre-release caught for ${name} (${bundleId}); surfacing terminal toast.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Not Released Yet";
+          progressToast.message = error.message;
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD("Not Released Yet");
+        }
+        return null;
+      }
+
       // Check if this is a specific authentication error that should be handled by the form flow
       if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
         // Loop breaker: if the user already completed a sign-in during this
@@ -392,8 +421,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           `[useAppDownload] Caught auth error in main catch (${error instanceof NeedsLoginError ? "login" : "2FA"}). Suppressing HUD and delegating to form flow.`,
         );
 
-        // Store download parameters for retry after successful auth
-        const downloadParams = { bundleId, name, version, price };
         if (authNavigation) {
           // Keep the lock while waiting for inline auth flow
           releaseLock = false;
@@ -408,14 +435,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                 logger.log(`[useAppDownload] Auth OK after login (catch). Resuming download for ${name} (${bundleId})`);
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
-                await handleDownload(
-                  downloadParams.bundleId,
-                  downloadParams.name,
-                  downloadParams.version,
-                  downloadParams.price,
-                  showHudMessages,
-                  operationId,
-                );
+                await resumeDownload();
               } catch (authError) {
                 const msg = authError instanceof Error ? authError.message : String(authError);
                 const info = analyzeIpatoolError(msg);
@@ -436,14 +456,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 authAttemptsByOp.set(operationId, (authAttemptsByOp.get(operationId) ?? 0) + 1);
                 logger.log(`[useAppDownload] Auth OK after 2FA (catch). Resuming download for ${name} (${bundleId})`);
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
-                await handleDownload(
-                  downloadParams.bundleId,
-                  downloadParams.name,
-                  downloadParams.version,
-                  downloadParams.price,
-                  showHudMessages,
-                  operationId,
-                );
+                await resumeDownload();
               } catch (authError) {
                 const msg = authError instanceof Error ? authError.message : String(authError);
                 const info = analyzeIpatoolError(msg);
@@ -473,21 +486,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (showHudMessages) {
         const hudMessage = errorAnalysis.isAuthError
           ? "Authentication Failed"
-          : errorAnalysis.errorType === "network"
-            ? "Network Error"
-            : errorAnalysis.errorType === "app_not_found"
-              ? "App Not Found"
-              : errorAnalysis.errorType === "rate_limited"
-                ? "Rate Limited"
-                : errorAnalysis.errorType === "maintenance"
-                  ? "App Store Maintenance"
-                  : errorAnalysis.errorType === "not_yet_released"
-                    ? "Not Released Yet"
-                    : errorAnalysis.errorType === "regional_restriction"
-                      ? "Region Restricted"
-                      : errorAnalysis.errorType === "account_restriction"
-                        ? "Account Restricted"
-                        : "Download Failed";
+          : (ERROR_TYPE_TITLES[errorAnalysis.errorType] ?? "Download Failed");
 
         // Update progress toast if it exists
         if (progressToast) {
@@ -505,9 +504,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       // For non-specific auth errors, use the existing handler
       if (errorAnalysis.isAuthError && !(error instanceof NeedsLoginError) && !(error instanceof Needs2FAError)) {
-        // Store download parameters for retry after successful auth
-        const downloadParams = { bundleId, name, version, price };
-
         // Handle authentication errors with form redirect if available
         logger.log(
           `[useAppDownload] Non-specific auth error detected. Routing via handleAuthError with potential form navigation.`,
@@ -527,14 +523,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             // Resume download after successful authentication
             logger.log(`[useAppDownload] Auth success via handler. Resuming download for ${name} (${bundleId})`);
             await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
-            await handleDownload(
-              downloadParams.bundleId,
-              downloadParams.name,
-              downloadParams.version,
-              downloadParams.price,
-              showHudMessages,
-              operationId,
-            );
+            await resumeDownload();
           },
         );
       } else {

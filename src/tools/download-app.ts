@@ -4,6 +4,7 @@ import { logger } from "@chrismessina/raycast-logger";
 import { Tool, showToast, Toast, Clipboard, showInFinder } from "@raycast/api";
 import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
+import { NotYetReleasedError } from "../utils/auth";
 
 // Constants
 const SEARCH_RESULT_LIMIT = 1;
@@ -139,6 +140,13 @@ export default async function downloadIosApp(input: Input) {
     } catch (downloadError) {
       logger.error(`[download-app tool] Download error for "${appName}":`, downloadError);
 
+      // Pre-release / Coming Soon: detect via typed error first (carries the
+      // classification through unchanged) and fall back to error-string
+      // analysis in case the error bubbled up another path.
+      if (downloadError instanceof NotYetReleasedError) {
+        return { success: false, message: `${appName} isn't available for download yet (pre-release).` };
+      }
+
       // Use the intelligent error handler which will detect auth errors and invalidate credentials
       await handleIpatoolError(downloadError, "download-app tool", undefined, "download", false);
 
@@ -153,6 +161,11 @@ export default async function downloadIosApp(input: Input) {
       if (errorInfo.errorType === "app_not_found") {
         return { success: false, message: "App not found" };
       }
+
+      if (errorInfo.errorType === "not_yet_released") {
+        return { success: false, message: `${appName} isn't available for download yet (pre-release).` };
+      }
+
       return { success: false, message: "Download failed" };
     }
   } catch (error) {

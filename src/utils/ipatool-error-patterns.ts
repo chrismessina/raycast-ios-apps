@@ -333,12 +333,11 @@ export function analyzeIpatoolError(
     };
   }
 
-  // Pre-release / Coming Soon apps. Apple's purchase API returns
-  //   failed to purchase item with param 'GAME': item is temporarily unavailable
-  // for apps that exist in the App Store but haven't been released yet (e.g.
-  // "Coming Soon — Expected Jul 1, 2026"). Without a specific match this would
-  // fall into the generic maintenance block below and tell the user the App
-  // Store is down, which is misleading.
+  // Pre-release / Coming Soon: ipatool wraps Apple's "temporarily unavailable"
+  // FailureType as `failed to purchase item with param '<STDQ|GAME>': item is
+  // temporarily unavailable`. Must run BEFORE the broader maintenance block,
+  // which would otherwise swallow this on the bare "temporarily unavailable"
+  // substring alone.
   if (fullMessage.includes("failed to purchase item with param") && fullMessage.includes("temporarily unavailable")) {
     return {
       isAuthError: false,
