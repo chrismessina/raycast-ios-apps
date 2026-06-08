@@ -52,8 +52,20 @@ export function AppActions({
         return await onDownload(app);
       }
 
-      // Fall back to auth-aware download via hook if no handler provided
-      return await downloadWithAuth(app.bundleId, app.name, app.version, app.price);
+      // Fall back to auth-aware download via hook if no handler provided.
+      // Pass app.fileSizeBytes and the full app (AppDetails) so the pre-release
+      // gate, integrity check, and download-history recording all work — same
+      // signature the other six call sites use.
+      return await downloadWithAuth(
+        app.bundleId,
+        app.name,
+        app.version,
+        app.price,
+        undefined,
+        undefined,
+        app.fileSizeBytes,
+        app,
+      );
     } catch (error) {
       console.error("Error downloading app:", error);
       showFailureToast({ title: "Error downloading app", message: String(error) });

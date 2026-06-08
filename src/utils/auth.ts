@@ -32,6 +32,20 @@ export class Needs2FAError extends Error {
   }
 }
 
+/**
+ * Thrown when ipatool reports that an app is not yet available for download
+ * (typical signature: pre-release / "Coming Soon" titles whose listing exists
+ * but whose purchase API returns "item is temporarily unavailable"). Carried
+ * across the ipatool → hook boundary so the UI can show the specific
+ * "Not Released Yet" message without re-parsing wrapped strings.
+ */
+export class NotYetReleasedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotYetReleasedError";
+  }
+}
+
 // Service name for secure keychain storage
 const PASSWORD_SERVICE = "ios-apps-apple-password";
 

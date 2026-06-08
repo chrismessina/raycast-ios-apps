@@ -40,6 +40,7 @@ export interface IpatoolErrorInfo {
     | "rate_limited"
     | "session_expired"
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
+    | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
     | "regional_restriction"
     | "account_restriction"
     | "generic";
@@ -93,11 +94,19 @@ export function analyzeIpatoolError(
   // Session expired / password token stale — ipatool FailureType 2034 or Apple's
   // "Your password has changed" response. The Apple ID is correct but the stored
   // token is invalid. Should trigger re-login, NOT credential wipe.
+  //
+  // The `unsupported protocol scheme ""` / `Post "": failed to make round trip`
+  // signature is ipatool issue majd/ipatool#449: Apple silently strips the
+  // purchase URL from its response when the session needs re-verification
+  // (e.g. after IP change). Symptom is identical to a session expiry — confirmed
+  // resolution is `ipatool auth login` again. Treat as session_expired so the
+  // download flow surfaces the sign-in form.
   if (
     fullMessage.includes("your password has changed") ||
     fullMessage.includes("password token is expired") ||
     fullMessage.includes("password token expired") ||
-    (fullMessage.includes("failuretype") && fullMessage.includes("2034"))
+    (fullMessage.includes("failuretype") && fullMessage.includes("2034")) ||
+    (fullMessage.includes("unsupported protocol scheme") && fullMessage.includes('post ""'))
   ) {
     return {
       isAuthError: true,
@@ -294,6 +303,14 @@ export function analyzeIpatoolError(
   }
 
   // Rate limiting (HTTP 429 / too many requests)
+  //
+  // The `failed to unmarshal xml: plist: error parsing text property list`
+  // signature is ipatool issue majd/ipatool#480: when Apple rate-limits the
+  // login/purchase endpoint it returns a non-plist body (an HTML error page),
+  // which ipatool then fails to parse. It surfaces on `auth login` and
+  // `purchase` alike. It is NOT an auth failure — re-entering credentials does
+  // nothing — so it must classify as rate_limited (isAuthError: false) to
+  // avoid bouncing the user to the sign-in form.
   if (
     fullMessage.includes("too many requests") ||
     fullMessage.includes("rate limit") ||
@@ -301,16 +318,34 @@ export function analyzeIpatoolError(
     fullMessage.includes("status code 429") ||
     fullMessage.includes("http 429") ||
     fullMessage.includes("request limit exceeded") ||
-    fullMessage.includes("exceeded your request limit")
+    fullMessage.includes("exceeded your request limit") ||
+    fullMessage.includes("failed to unmarshal xml") ||
+    fullMessage.includes("error parsing text property list")
   ) {
     return {
       isAuthError: false,
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Rate limited by Apple. Too many requests in a short time. Please wait a minute and try again.",
+      userMessage: "Rate limited by Apple. Too many requests in a short time. Please wait a few minutes and try again.",
       suggestedAction: "Retry",
       errorType: "rate_limited",
+    };
+  }
+
+  // Pre-release / Coming Soon: ipatool wraps Apple's "temporarily unavailable"
+  // FailureType as `failed to purchase item with param '<STDQ|GAME>': item is
+  // temporarily unavailable`. Must run BEFORE the broader maintenance block,
+  // which would otherwise swallow this on the bare "temporarily unavailable"
+  // substring alone.
+  if (fullMessage.includes("failed to purchase item with param") && fullMessage.includes("temporarily unavailable")) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "This app isn't available for download yet. It may be a pre-release or Coming Soon title.",
+      errorType: "not_yet_released",
     };
   }
 

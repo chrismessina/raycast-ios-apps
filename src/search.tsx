@@ -92,7 +92,7 @@ export default function Search() {
                 key={`${search.query}-${index}`}
                 title={search.query}
                 subtitle={new Date(search.timestamp).toLocaleDateString()}
-                icon={{ source: "magnifying-glass.svg" }}
+                icon={Icon.MagnifyingGlass}
                 actions={
                   <ActionPanel>
                     <Action title="Search" onAction={() => setSearchText(search.query)} icon={Icon.MagnifyingGlass} />
@@ -118,7 +118,7 @@ export default function Search() {
         <List.EmptyView
           title="Type Query to Search"
           description="Search for apps by name, developer, or bundle Id."
-          icon="no-view.png"
+          icon="no-view@256.png"
         />
       </List>
     );

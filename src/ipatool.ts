@@ -9,10 +9,10 @@ import { logger } from "@chrismessina/raycast-logger";
 
 import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { ensureAuthenticated } from "./utils/auth";
+import { ensureAuthenticated, NeedsLoginError, Needs2FAError, NotYetReleasedError } from "./utils/auth";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
-import { analyzeIpatoolError } from "./utils/ipatool-error-patterns";
+import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
 import { extractFilePath, safeJsonParse } from "./utils/common";
 import {
   convertITunesResultToAppDetails,
@@ -47,6 +47,110 @@ interface ValidationResult {
 }
 
 /**
+ * Result of the existing-download lookup.
+ *
+ *   none      — no matching file in the downloads directory
+ *   overwrite — a matching file exists and the user confirmed overwrite
+ *   skipped   — a matching file exists and the user cancelled
+ */
+export type ExistingDownloadCheck = { kind: "none" } | { kind: "overwrite" } | { kind: "skipped" };
+
+/**
+ * Look for an existing IPA in the downloads directory that matches this app and,
+ * if found, prompt the user to overwrite. Runs before any progress UI so the
+ * caller can decide whether to start the download flow at all.
+ *
+ * Match strategy mirrors the rename logic at the end of a successful download:
+ * exact filenames first ({bundleId}.ipa, {AppName} {Version}.ipa, {AppName}.ipa),
+ * then a fuzzy fallback on bundleId substring or "{name} " prefix.
+ */
+export async function checkForExistingDownload(
+  bundleId: string,
+  appName?: string,
+  appVersion?: string,
+): Promise<ExistingDownloadCheck> {
+  const displayName = appName || bundleId;
+  const downloadsDir = getDownloadsDirectory();
+
+  const sanitizedName = appName ? appName.replace(/[/\\?%*:|"<>]/g, "-") : undefined;
+  const possibleFilenames = [
+    `${bundleId}.ipa`,
+    sanitizedName && appVersion ? `${sanitizedName} ${appVersion}.ipa` : undefined,
+    sanitizedName ? `${sanitizedName}.ipa` : undefined,
+  ].filter(Boolean) as string[];
+
+  let existingFile: string | null = null;
+  let existingFileSize = 0;
+
+  for (const filename of possibleFilenames) {
+    const filePath = path.join(downloadsDir, filename);
+    try {
+      const stats = await fs.promises.stat(filePath);
+      existingFile = filePath;
+      existingFileSize = stats.size;
+      logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`);
+      break;
+    } catch {
+      // File doesn't exist, continue checking
+    }
+  }
+
+  if (!existingFile) {
+    try {
+      const files = await fs.promises.readdir(downloadsDir);
+      const lowerName = sanitizedName?.toLowerCase();
+      const allowFuzzy = lowerName && lowerName.length >= 3;
+      const similarFiles = files.filter((file) => {
+        if (!file.endsWith(".ipa")) return false;
+        if (file.includes(bundleId)) return true;
+        if (allowFuzzy && lowerName) {
+          return file.toLowerCase().startsWith(lowerName + " ");
+        }
+        return false;
+      });
+
+      if (similarFiles.length > 0) {
+        const filePath = path.join(downloadsDir, similarFiles[0]);
+        try {
+          const stats = await fs.promises.stat(filePath);
+          existingFile = filePath;
+          existingFileSize = stats.size;
+          logger.log(
+            `[validation] Found similar existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`,
+          );
+        } catch (error) {
+          logger.warn(`[validation] Could not stat similar file:`, error);
+        }
+      }
+    } catch (error) {
+      logger.warn(`[validation] Could not read downloads directory:`, error);
+    }
+  }
+
+  if (!existingFile) {
+    return { kind: "none" };
+  }
+
+  const existingFileMB = Math.ceil(existingFileSize / BYTES_PER_MB);
+  const confirmed = await confirmAlert({
+    title: "File Already Exists",
+    message: `A file for "${displayName}" already exists (${existingFileMB} MB).\n\nDo you want to overwrite it?`,
+    primaryAction: {
+      title: "Overwrite",
+      style: Alert.ActionStyle.Destructive,
+    },
+  });
+
+  if (!confirmed) {
+    logger.log(`[validation] Skipped download: file already exists (${path.basename(existingFile)})`);
+    return { kind: "skipped" };
+  }
+
+  logger.log(`[validation] ✓ User confirmed overwrite of existing file`);
+  return { kind: "overwrite" };
+}
+
+/**
  * Interface for file integrity verification results
  */
 interface IntegrityResult {
@@ -66,7 +170,6 @@ export async function validateDownloadPrereqs(
   bundleId: string,
   appName?: string,
   expectedSizeBytes?: number,
-  appVersion?: string,
 ): Promise<ValidationResult> {
   const displayName = appName || bundleId;
   logger.log(`[validation] Starting prerequisite validation for ${displayName}`);
@@ -123,88 +226,9 @@ export async function validateDownloadPrereqs(
       // Don't fail validation if we can't check disk space, just warn
     }
 
-    // 3. Check for pre-existing target file and prompt for overwrite
-    const sanitizedName = appName ? appName.replace(/[/\\?%*:|"<>]/g, "-") : undefined;
-    const possibleFilenames = [
-      `${bundleId}.ipa`,
-      sanitizedName && appVersion ? `${sanitizedName} ${appVersion}.ipa` : undefined,
-      sanitizedName ? `${sanitizedName}.ipa` : undefined,
-    ].filter(Boolean) as string[];
-
-    let existingFile: string | null = null;
-    let existingFileSize = 0;
-
-    // Prefer exact filename matches only
-    for (const filename of possibleFilenames) {
-      const filePath = path.join(downloadsDir, filename);
-      try {
-        const stats = await fs.promises.stat(filePath);
-        existingFile = filePath;
-        existingFileSize = stats.size;
-        logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`);
-        break;
-      } catch {
-        // File doesn't exist, continue checking
-      }
-    }
-
-    // As a last resort, look for very similar files but avoid false positives on short names
-    if (!existingFile) {
-      const files = await fs.promises.readdir(downloadsDir);
-      const lowerName = sanitizedName?.toLowerCase();
-      const allowFuzzy = lowerName && lowerName.length >= 3; // avoid matching names like "X"
-      const similarFiles = files.filter((file) => {
-        if (!file.endsWith(".ipa")) return false;
-        if (file.includes(bundleId)) return true; // bundleId is precise
-        if (allowFuzzy && lowerName) {
-          // start-with is safer than contains for names
-          return file.toLowerCase().startsWith(lowerName + " ");
-        }
-        return false;
-      });
-
-      if (similarFiles.length > 0) {
-        const filePath = path.join(downloadsDir, similarFiles[0]);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          existingFile = filePath;
-          existingFileSize = stats.size;
-          logger.log(
-            `[validation] Found similar existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`,
-          );
-        } catch (error) {
-          logger.warn(`[validation] Could not stat similar file:`, error);
-        }
-      }
-    }
-
-    if (existingFile) {
-      const existingFileMB = Math.ceil(existingFileSize / BYTES_PER_MB);
-      const confirmed = await confirmAlert({
-        title: "File Already Exists",
-        message: `A file for "${displayName}" already exists (${existingFileMB} MB).\n\nDo you want to overwrite it?`,
-        primaryAction: {
-          title: "Overwrite",
-          style: Alert.ActionStyle.Destructive,
-        },
-      });
-
-      if (!confirmed) {
-        const errorMsg = "App already exists and won't be  downloaded again.";
-        logger.log(`[validation] Skipped download: file already exists (${path.basename(existingFile)})`);
-
-        await showToast({
-          style: Toast.Style.Animated,
-          title: "App already exists and won't be  downloaded again.",
-        });
-
-        return { isValid: false, errorMessage: errorMsg, cancelled: true };
-      }
-
-      logger.log(`[validation] ✓ User confirmed overwrite of existing file`);
-    } else {
-      logger.log(`[validation] ✓ No existing file conflict`);
-    }
+    // 3. Existing-file detection has moved upstream into checkForExistingDownload()
+    //    so the user is prompted before any progress UI is shown. By the time we
+    //    reach this validator, the caller has already decided to overwrite.
 
     // 4. Check network connectivity (try multiple methods with graceful fallbacks)
     try {
@@ -332,16 +356,30 @@ export function isFreeApp(price?: string): boolean {
 }
 
 /**
+ * Result of an app license purchase attempt.
+ *
+ * On failure, `errorType` carries the analyzed ipatool error category so the
+ * caller can produce an accurate message (e.g. rate-limited vs. a real
+ * restriction) instead of guessing. Auth failures are not represented here —
+ * those throw NeedsLoginError instead.
+ */
+export interface PurchaseResult {
+  success: boolean;
+  errorType?: IpatoolErrorInfo["errorType"];
+  userMessage?: string;
+}
+
+/**
  * Attempts to purchase an app using ipatool
  * @param bundleId The bundle identifier of the app
  * @param appName Optional app name for logging
- * @returns Promise<boolean> - true if purchase was successful, false otherwise
+ * @returns Promise<PurchaseResult> - success flag plus error classification on failure
  */
 export async function purchaseApp(
   bundleId: string,
   appName?: string,
   options?: { suppressHUD?: boolean },
-): Promise<boolean> {
+): Promise<PurchaseResult> {
   const displayName = appName || bundleId;
   const done = logger.time(`purchaseApp:${displayName}`);
   logger.log(`[ipatool] Attempting to purchase app: ${displayName} (${bundleId})`);
@@ -426,7 +464,7 @@ export async function purchaseApp(
     if (!suppressHUD) {
       await showHUD(`Successfully purchased ${displayName}`);
     }
-    return true;
+    return { success: true };
   }
 
   // Purchase failed — analyze the error from stdout JSON
@@ -438,12 +476,22 @@ export async function purchaseApp(
     logger.error(`[ipatool] Auth error during purchase: ${errorAnalysis.userMessage}`);
     done({ result: "auth_error" });
     // Throw so the download flow can catch this and redirect to sign-in
-    const { NeedsLoginError } = await import("./utils/auth");
     throw new NeedsLoginError(errorAnalysis.userMessage);
   }
 
+  // Pre-release / Coming Soon apps: throw a typed error so the hook can show
+  // the specific "Not Released Yet" toast without re-parsing a wrapped string.
+  // The downstream re-analysis loses the source signature once it's wrapped
+  // into "Could not get a license for X: ...", so a typed error is the only
+  // reliable way to carry the classification across the boundary.
+  if (errorAnalysis.errorType === "not_yet_released") {
+    logger.error(`[ipatool] Pre-release / Coming Soon detected during purchase: ${errorAnalysis.userMessage}`);
+    done({ result: "not_yet_released" });
+    throw new NotYetReleasedError(errorAnalysis.userMessage);
+  }
+
   done({ result: "failed", errorType: errorAnalysis.errorType });
-  return false;
+  return { success: false, errorType: errorAnalysis.errorType, userMessage: errorAnalysis.userMessage };
 }
 
 /**
@@ -699,7 +747,7 @@ export async function downloadApp(
         logger.log(`[validation] Using provided expected app size: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`);
       }
 
-      const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes, appVersion);
+      const validation = await validateDownloadPrereqs(bundleId, appName, expectedSizeBytes);
       if (!validation.isValid) {
         const msg = validation.errorMessage || "Prerequisite validation failed";
         if (validation.cancelled) {
@@ -922,10 +970,15 @@ export async function downloadApp(
             });
           }
 
-          // Handle process completion
-          child.on("close", async (code) => {
+          // Handle process completion. Node emits (code, signal) on close —
+          // when the process exits normally, `code` is the exit status and
+          // `signal` is null; when it's killed by a signal (timeout watchdog,
+          // stall watchdog, OS kill, Raycast reload), `code` is null and
+          // `signal` carries the signal name (e.g. "SIGTERM"). We surface that
+          // so the user-facing error is actionable instead of "code null".
+          child.on("close", async (code, signal) => {
             clearAllTimers();
-            logger.log(`[ipatool] Download process exited with code ${code}`);
+            logger.log(`[ipatool] Download process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
 
             // Only log full output in development or when there's an error
             if (process.env.NODE_ENV === "development" || code !== 0) {
@@ -934,11 +987,19 @@ export async function downloadApp(
             }
 
             if (code !== 0) {
-              logger.error(`[ipatool] Download failed with code ${code}. Error: ${stderr}`);
+              logger.error(
+                `[ipatool] Download failed with code ${code}${signal ? ` (signal: ${signal})` : ""}. Error: ${stderr}`,
+              );
               logger.error(`[ipatool] Full stdout content: "${stdout}"`);
 
-              // Parse JSON output from stdout to get specific error information
-              const errorMessage = `Process exited with code ${code}`;
+              // Parse JSON output from stdout to get specific error information.
+              // If the process was killed by a signal, code is null and we
+              // describe what actually happened instead of "code null".
+              const errorMessage = signal
+                ? signal === "SIGTERM"
+                  ? `Download stopped before completing (terminated). This usually means it stalled, timed out, or was interrupted.`
+                  : `Download stopped before completing (signal: ${signal}).`
+                : `Process exited with code ${code}`;
               let specificError = "";
 
               try {
@@ -1105,9 +1166,9 @@ export async function downloadApp(
                   );
 
                   try {
-                    const purchaseSuccess = await purchaseApp(bundleId, appName, options);
+                    const purchaseResult = await purchaseApp(bundleId, appName, options);
 
-                    if (purchaseSuccess) {
+                    if (purchaseResult.success) {
                       logger.log(
                         `[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`,
                       );
@@ -1130,20 +1191,36 @@ export async function downloadApp(
                       return;
                     } else {
                       logger.log(
-                        `[ipatool] License purchase failed for ${appName || bundleId}. Proceeding with error handling.`,
+                        `[ipatool] License purchase failed for ${appName || bundleId} (${purchaseResult.errorType}). Proceeding with error handling.`,
                       );
                       if (!suppressHUD) {
                         await showHUD(`Failed to obtain license for ${appName || bundleId}`);
                       }
 
-                      // Update the error message to be more specific about license purchase failure
-                      finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to authentication issues or App Store restrictions.`;
+                      // Surface the purchase error's own classification rather
+                      // than guessing. Rate limiting (ipatool#480 plist error)
+                      // is the common case for some apps and is transient.
+                      if (purchaseResult.errorType === "rate_limited") {
+                        finalErrorMessage = `Could not get a license for "${appName || bundleId}" — Apple is rate-limiting requests. Please wait a few minutes and try again.`;
+                      } else if (purchaseResult.userMessage) {
+                        finalErrorMessage = `Could not get a license for "${appName || bundleId}": ${purchaseResult.userMessage}`;
+                      } else {
+                        finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to App Store restrictions.`;
+                      }
                     }
                   } catch (purchaseError) {
                     // If purchase failed due to auth (e.g. expired token, password changed),
                     // propagate NeedsLoginError directly so the download hook redirects to sign-in
                     if (purchaseError instanceof Error && purchaseError.name === "NeedsLoginError") {
                       logger.error(`[ipatool] Auth required during license purchase for ${appName || bundleId}`);
+                      reject(purchaseError);
+                      return;
+                    }
+
+                    // Pre-release / Coming Soon: propagate the typed error unchanged so the
+                    // hook can render the specific "Not Released Yet" toast.
+                    if (purchaseError instanceof NotYetReleasedError) {
+                      logger.log(`[ipatool] Pre-release surfaced during license purchase for ${appName || bundleId}`);
                       reject(purchaseError);
                       return;
                     }
@@ -1163,10 +1240,12 @@ export async function downloadApp(
 
               // Route to appropriate error handler based on analysis
               if (errorAnalysis.isAuthError) {
-                // Import the error types if not already imported at the top
-                const { NeedsLoginError } = await import("./utils/auth");
                 // Reject with NeedsLoginError to let the hook handle it with navigation
                 reject(new NeedsLoginError(finalErrorMessage));
+              } else if (errorAnalysis.errorType === "not_yet_released") {
+                // Pre-release / Coming Soon: surface as typed error so the hook can
+                // show "Not Released Yet" without re-parsing the wrapped message.
+                reject(new NotYetReleasedError(finalErrorMessage));
               } else {
                 // Pass shouldThrow=false since we're inside an async callback and will reject() below
                 // Throwing here would cause an uncaught exception that crashes the extension
@@ -1421,9 +1500,6 @@ export async function downloadApp(
         });
     });
   } catch (error) {
-    // Import the error types if not already imported
-    const { NeedsLoginError, Needs2FAError } = await import("./utils/auth");
-
     // Let authentication errors bubble up to be handled by the calling code
     if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
       logger.error(`[ipatool] Authentication error during download: ${error.message}`);
