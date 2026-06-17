@@ -174,7 +174,7 @@
       "title": "Cleanup Temporary Files",
       "description": "Automatically clean up temporary files when the extension exits",
       "type": "checkbox",
-      "label": "Enable Cleanup",
+      "label": "Clean up on exit",
       "default": true,
       "required": false
     },
@@ -205,7 +205,7 @@
       "title": "Verbose Logging",
       "description": "Enable detailed console logging for debugging purposes",
       "type": "checkbox",
-      "label": "Enable Verbose Logging",
+      "label": "Log to console",
       "default": false,
       "required": false
     }
