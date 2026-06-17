@@ -62,7 +62,9 @@ export type ExistingDownloadCheck = { kind: "none" } | { kind: "overwrite" } | {
  *
  * Match strategy mirrors the rename logic at the end of a successful download:
  * exact filenames first ({bundleId}.ipa, {AppName} {Version}.ipa, {AppName}.ipa),
- * then a fuzzy fallback on bundleId substring or "{name} " prefix.
+ * then a fuzzy fallback on bundleId substring only. The match is version-specific:
+ * a different version of the same app ({AppName} {OtherVersion}.ipa) is NOT a
+ * collision and downloads alongside the existing file without a prompt.
  */
 export async function checkForExistingDownload(
   bundleId: string,
@@ -98,15 +100,15 @@ export async function checkForExistingDownload(
   if (!existingFile) {
     try {
       const files = await fs.promises.readdir(downloadsDir);
-      const lowerName = sanitizedName?.toLowerCase();
-      const allowFuzzy = lowerName && lowerName.length >= 3;
+      // Only the bundleId substring is a safe fuzzy signal: it matches ipatool's
+      // raw intermediate file (`{bundleId}_{adamId}_{version}.ipa`) before we
+      // rename it. We deliberately do NOT match on the app-name prefix — every
+      // prior version shares the "{Name} " prefix and differs only by version,
+      // so a name-prefix match would flag a *different* version as a collision
+      // and prompt to overwrite a file we should be downloading alongside.
       const similarFiles = files.filter((file) => {
         if (!file.endsWith(".ipa")) return false;
-        if (file.includes(bundleId)) return true;
-        if (allowFuzzy && lowerName) {
-          return file.toLowerCase().startsWith(lowerName + " ");
-        }
-        return false;
+        return file.includes(bundleId);
       });
 
       if (similarFiles.length > 0) {
