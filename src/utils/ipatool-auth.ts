@@ -129,7 +129,12 @@ export async function login({ email, password, code, onTwoFactorPrompt }: LoginO
         // We must check stdout for the 2FA message before declaring success.
         if (twoFANotified || detectTwoFactorPrompt(combined)) {
           logger.log("[ipatool-auth] 2FA required (exit code 0, non-interactive mode)");
-          resolve({ success: false, needs2FA: true, message: "Two-factor authentication required. Please provide the 6-digit code from your trusted device.", raw: combined });
+          resolve({
+            success: false,
+            needs2FA: true,
+            message: "Two-factor authentication required. Please provide the 6-digit code from your trusted device.",
+            raw: combined,
+          });
           return;
         }
 

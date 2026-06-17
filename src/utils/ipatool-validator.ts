@@ -150,10 +150,7 @@ async function showIpatoolSecurityError(error: unknown): Promise<void> {
 /**
  * Shows error when ipatool version doesn't match required version
  */
-async function showIpatoolVersionMismatchError(
-  installedVersion: string,
-  requiredVersion: string,
-): Promise<void> {
+async function showIpatoolVersionMismatchError(installedVersion: string, requiredVersion: string): Promise<void> {
   const instructions = `
 # ipatool version mismatch
 
@@ -189,10 +186,7 @@ brew install ipatool@${requiredVersion}
 /**
  * Shows version mismatch instructions
  */
-async function showVersionMismatchInstructions(
-  installedVersion: string,
-  requiredVersion: string,
-): Promise<void> {
+async function showVersionMismatchInstructions(installedVersion: string, requiredVersion: string): Promise<void> {
   const instructions = `
 # ipatool version mismatch
 
