@@ -34,6 +34,72 @@ async function rateLimit(limiter: RateLimiter): Promise<void> {
   limiter.lastRequest = Date.now();
 }
 
+// Retry tuning for the iTunes Search API. Apple's public endpoint
+// intermittently returns transient 404/403/429/5xx responses for requests
+// that succeed on the very next attempt, so a single attempt is not reliable.
+const ITUNES_MAX_ATTEMPTS = 3;
+const ITUNES_RETRY_BASE_DELAY_MS = 250;
+
+/**
+ * HTTP statuses that indicate a transient iTunes API failure worth retrying.
+ * A genuine "no such app" is NOT in here: the search/lookup endpoints return
+ * 200 with `resultCount: 0` for that case, so retrying a 404 never masks a
+ * legitimately empty result — it only papers over Apple's flakiness.
+ */
+function isRetriableStatus(status: number): boolean {
+  return status === 404 || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+/**
+ * Fetch a URL from the iTunes API with retry-and-backoff on transient failures.
+ *
+ * Retries on retriable HTTP statuses (see {@link isRetriableStatus}) and on
+ * network-level errors (the fetch itself throwing). Exhausting all attempts
+ * throws the last error so the caller's catch can surface a friendly message.
+ *
+ * @param url Fully-constructed request URL
+ * @param context Short label for logging (e.g. the search term or bundleId)
+ * @returns The successful Response
+ */
+async function fetchITunesWithRetry(url: string, context: string): Promise<Response> {
+  let lastError: Error = new Error("iTunes API request failed");
+
+  for (let attempt = 1; attempt <= ITUNES_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return response;
+      }
+
+      lastError = new Error(`iTunes API returned ${response.status}: ${response.statusText}`);
+      if (!isRetriableStatus(response.status) || attempt === ITUNES_MAX_ATTEMPTS) {
+        throw lastError;
+      }
+      logger.log(
+        `[iTunes API] Transient ${response.status} for ${context} (attempt ${attempt}/${ITUNES_MAX_ATTEMPTS}); retrying`,
+      );
+    } catch (error) {
+      // A thrown non-retriable HTTP error (rethrown above) or a network error.
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const isHttpError = lastError.message.startsWith("iTunes API returned ");
+      const httpStatusIsTerminal =
+        isHttpError && !isRetriableStatus(Number(lastError.message.match(/returned (\d+)/)?.[1] ?? 0));
+      if (httpStatusIsTerminal || attempt === ITUNES_MAX_ATTEMPTS) {
+        throw lastError;
+      }
+      logger.log(
+        `[iTunes API] Network error for ${context} (attempt ${attempt}/${ITUNES_MAX_ATTEMPTS}): ${lastError.message}; retrying`,
+      );
+    }
+
+    // Exponential backoff before the next attempt.
+    const delay = ITUNES_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  throw lastError;
+}
+
 /**
  * Convert iTunes API result to AppDetails format
  * @param itunesData iTunes API result
@@ -137,11 +203,8 @@ export async function fetchITunesAppDetails(bundleId: string): Promise<ITunesRes
 
     logger.log(`[iTunes API] Fetching app details for ${bundleId} from ${url.toString()}`);
 
-    // Fetch data from iTunes API
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`iTunes API returned ${response.status}: ${response.statusText}`);
-    }
+    // Fetch data from iTunes API with retry on transient failures
+    const response = await fetchITunesWithRetry(url.toString(), bundleId);
 
     // Parse the response
     const data = (await response.json()) as ITunesResponse;
@@ -155,8 +218,8 @@ export async function fetchITunesAppDetails(bundleId: string): Promise<ITunesRes
     // Return the first result
     return data.results[0];
   } catch (error) {
-    console.error(`[iTunes API] Error fetching app details for ${bundleId}:`, error);
-    await showFailureToast(error, { title: `Failed to fetch iTunes data for ${bundleId}` });
+    console.error(`[iTunes API] Error fetching app details for ${bundleId} after retries:`, error);
+    await showFailureToast(error, { title: "iTunes is temporarily unavailable", message: "Please try again." });
     return null;
   }
 }
@@ -181,11 +244,8 @@ export async function searchITunesApps(term: string, limit = 20): Promise<ITunes
 
     logger.log(`[iTunes API] Searching for "${term}" with limit ${limit} from ${url.toString()}`);
 
-    // Fetch data from iTunes API
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`iTunes API returned ${response.status}: ${response.statusText}`);
-    }
+    // Fetch data from iTunes API with retry on transient failures
+    const response = await fetchITunesWithRetry(url.toString(), `"${term}"`);
 
     // Parse the response
     const data = (await response.json()) as ITunesResponse;
@@ -199,8 +259,8 @@ export async function searchITunesApps(term: string, limit = 20): Promise<ITunes
     // Return all results
     return data.results;
   } catch (error) {
-    logger.error(`[iTunes API] Error searching for "${term}":`, error);
-    await showFailureToast(error, { title: `Failed to search iTunes for "${term}"` });
+    logger.error(`[iTunes API] Error searching for "${term}" after retries:`, error);
+    await showFailureToast(error, { title: "iTunes is temporarily unavailable", message: "Please try again." });
     return [];
   }
 }
