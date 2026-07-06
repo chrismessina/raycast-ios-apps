@@ -33,7 +33,7 @@ This extension requires [Homebrew](https://brew.sh), a package manager for macOS
 
 ### ipatool
 
-Once you have Homebrew installed, install [ipatool](https://github.com/majd/ipatool) (version 2.3.0 or greater), a command-line tool for interacting with Apple's App Store using this command:
+Once you have Homebrew installed, install [ipatool](https://github.com/majd/ipatool) (version 2.3.1 or greater), a command-line tool for interacting with Apple's App Store using this command:
 
 ```bash
 brew uninstall ipatool  # Uninstall if already installed

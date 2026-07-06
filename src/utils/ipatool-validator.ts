@@ -1,28 +1,55 @@
 import { existsSync, accessSync, constants } from "fs";
 import { spawnSync, spawn, ChildProcess } from "child_process";
-import { showToast, Toast, open } from "@raycast/api";
+import { showToast, Toast, openExtensionPreferences } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { IPATOOL_PATH, validateExecutablePath } from "./paths";
 import { logger } from "@chrismessina/raycast-logger";
+import { createCopyLogsAction } from "./log-actions";
 
 // Constants
 const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";
-const REQUIRED_IPATOOL_VERSION = "2.3.0";
+// Minimum supported ipatool version. 2.3.1 is the release that fixed App Store
+// login after Apple moved the authenticate endpoint (majd/ipatool#507); older
+// builds can no longer authenticate. Newer builds are accepted as-is.
+const MINIMUM_IPATOOL_VERSION = "2.3.1";
 const DEFAULT_COMMAND_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_VALIDATION_TIMEOUT = 5000; // 5 seconds
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB max output size
 const ALLOWED_IPATOOL_COMMANDS = ["--version", "download", "search", "auth", "purchase"] as const;
 
+export class IpatoolSetupError extends Error {
+  constructor(
+    message: string,
+    readonly title = "ipatool Not Found",
+  ) {
+    super(message);
+    this.name = "IpatoolSetupError";
+  }
+}
+
+interface IpatoolValidationOptions {
+  throwOnFailure?: boolean;
+}
+
+async function failValidation(error: IpatoolSetupError, options: IpatoolValidationOptions): Promise<boolean> {
+  if (options.throwOnFailure) {
+    throw error;
+  }
+
+  return false;
+}
+
 /**
  * Validates that ipatool is installed and accessible
  * @returns Promise<boolean> - true if ipatool is available, false otherwise
  */
-export async function validateIpatoolInstallation(): Promise<boolean> {
+export async function validateIpatoolInstallation(options: IpatoolValidationOptions = {}): Promise<boolean> {
   try {
     // First check if the file exists at the expected path
     if (!existsSync(IPATOOL_PATH)) {
-      await showIpatoolNotFoundError();
-      return false;
+      const setupError = new IpatoolSetupError(`Check the ipatool Path preference: ${IPATOOL_PATH}`);
+      await showIpatoolNotFoundError(setupError);
+      return failValidation(setupError, options);
     }
 
     // Validate the ipatool path is safe and secure
@@ -30,8 +57,9 @@ export async function validateIpatoolInstallation(): Promise<boolean> {
       validateExecutablePath(IPATOOL_PATH);
     } catch (pathError) {
       logger.error(`[ipatool] Unsafe ipatool path: ${IPATOOL_PATH}`, pathError);
-      await showIpatoolSecurityError(pathError);
-      return false;
+      const setupError = new IpatoolSetupError("Check the ipatool Path preference.", "ipatool Path Not Allowed");
+      await showIpatoolSecurityError(setupError, pathError);
+      return failValidation(setupError, options);
     }
 
     // Check file permissions
@@ -39,8 +67,9 @@ export async function validateIpatoolInstallation(): Promise<boolean> {
       accessSync(IPATOOL_PATH, constants.F_OK | constants.X_OK);
     } catch (permError) {
       logger.error(`[ipatool] Permission error for: ${IPATOOL_PATH}`, permError);
-      await showIpatoolExecutionError(permError);
-      return false;
+      const setupError = new IpatoolSetupError("ipatool exists but is not executable.", "ipatool Cannot Run");
+      await showIpatoolExecutionError(setupError, permError);
+      return failValidation(setupError, options);
     }
 
     // Try to execute ipatool to verify it works with enhanced security
@@ -54,19 +83,25 @@ export async function validateIpatoolInstallation(): Promise<boolean> {
       const installedVersion = parseIpatoolVersion(validation.stdout || validation.stderr || "");
       if (!installedVersion) {
         logger.warn(`[ipatool] Could not parse version from output: ${validation.stdout}`);
-        // Continue anyway - version parsing might fail but tool works
-      } else if (installedVersion !== REQUIRED_IPATOOL_VERSION) {
-        await showIpatoolVersionMismatchError(installedVersion, REQUIRED_IPATOOL_VERSION);
+        // Continue anyway - version parsing might fail but tool works (e.g. "dev" builds)
+      } else if (compareVersions(installedVersion, MINIMUM_IPATOOL_VERSION) < 0) {
+        await showIpatoolVersionOutdatedError(installedVersion, MINIMUM_IPATOOL_VERSION);
         return false;
       }
 
       logger.log(`[ipatool] Found working ipatool v${installedVersion || "unknown"} at: ${IPATOOL_PATH}`);
       return true;
     } else {
-      await showIpatoolExecutionError(validation.error || new Error("Unknown validation error"));
-      return false;
+      const cause = validation.error || new Error("Unknown validation error");
+      const setupError = new IpatoolSetupError("ipatool exists but failed validation.", "ipatool Cannot Run");
+      await showIpatoolExecutionError(setupError, cause);
+      return failValidation(setupError, options);
     }
   } catch (error) {
+    if (error instanceof IpatoolSetupError) {
+      throw error;
+    }
+
     logger.error("[ipatool] Validation error:", error);
     await showGenericIpatoolError(error);
     return false;
@@ -79,31 +114,50 @@ export async function validateIpatoolInstallation(): Promise<boolean> {
  * @returns The version string or null if not found
  */
 function parseIpatoolVersion(output: string): string | null {
-  // ipatool outputs: "ipatool version 2.3.0"
+  // ipatool outputs: "ipatool version 2.3.1"
   const match = output.match(/ipatool version\s+(\d+\.\d+\.\d+)/i);
   return match ? match[1] : null;
 }
 
 /**
+ * Compares two dotted numeric version strings (e.g. "2.3.1").
+ * @returns negative if a < b, 0 if equal, positive if a > b
+ */
+function compareVersions(a: string, b: string): number {
+  const partsA = a.split(".").map(Number);
+  const partsB = b.split(".").map(Number);
+  const length = Math.max(partsA.length, partsB.length);
+
+  for (let i = 0; i < length; i++) {
+    const numA = partsA[i] ?? 0;
+    const numB = partsB[i] ?? 0;
+    if (numA !== numB) {
+      return numA - numB;
+    }
+  }
+
+  return 0;
+}
+
+/**
  * Shows error when ipatool is not found at expected path
  */
-async function showIpatoolNotFoundError(): Promise<void> {
+async function showIpatoolNotFoundError(error: IpatoolSetupError): Promise<void> {
   await showToast({
     style: Toast.Style.Failure,
-    title: "ipatool not found",
-    message: `Not found at: ${IPATOOL_PATH}`,
+    title: error.title,
+    message: "Check the ipatool Path preference.",
     primaryAction: {
-      title: "Install ipatool",
+      title: "Open Preferences",
       onAction: () => {
-        open(IPATOOL_GITHUB_URL);
+        openExtensionPreferences();
       },
     },
-    secondaryAction: {
-      title: "Check Installation",
-      onAction: () => {
-        showInstallationInstructions();
-      },
-    },
+    secondaryAction: createCopyLogsAction({
+      title: error.title,
+      message: error.message,
+      metadata: { ipatoolPath: IPATOOL_PATH },
+    }),
   });
 
   logger.error(`[ipatool] Not found at expected path: ${IPATOOL_PATH}`);
@@ -112,17 +166,23 @@ async function showIpatoolNotFoundError(): Promise<void> {
 /**
  * Shows error when ipatool exists but can't be executed
  */
-async function showIpatoolExecutionError(error: unknown): Promise<void> {
+async function showIpatoolExecutionError(setupError: IpatoolSetupError, error: unknown): Promise<void> {
   await showToast({
     style: Toast.Style.Failure,
-    title: "ipatool execution failed",
-    message: "Found but cannot execute",
+    title: setupError.title,
+    message: setupError.message,
     primaryAction: {
       title: "Check Permissions",
       onAction: () => {
         showPermissionInstructions();
       },
     },
+    secondaryAction: createCopyLogsAction({
+      title: setupError.title,
+      message: setupError.message,
+      error,
+      metadata: { ipatoolPath: IPATOOL_PATH },
+    }),
   });
 
   logger.error(`[ipatool] Execution failed:`, error);
@@ -131,86 +191,95 @@ async function showIpatoolExecutionError(error: unknown): Promise<void> {
 /**
  * Shows error when ipatool path is deemed unsafe
  */
-async function showIpatoolSecurityError(error: unknown): Promise<void> {
+async function showIpatoolSecurityError(setupError: IpatoolSetupError, error: unknown): Promise<void> {
   await showToast({
     style: Toast.Style.Failure,
-    title: "ipatool security error",
-    message: "Unsafe executable path detected",
+    title: setupError.title,
+    message: setupError.message,
     primaryAction: {
-      title: "Check Installation",
+      title: "Open Preferences",
       onAction: () => {
-        showInstallationInstructions();
+        openExtensionPreferences();
       },
     },
+    secondaryAction: createCopyLogsAction({
+      title: setupError.title,
+      message: setupError.message,
+      error,
+      metadata: { ipatoolPath: IPATOOL_PATH },
+    }),
   });
 
   logger.error(`[ipatool] Security error:`, error);
 }
 
 /**
- * Shows error when ipatool version doesn't match required version
+ * Shows error when the installed ipatool is older than the minimum supported version
  */
-async function showIpatoolVersionMismatchError(installedVersion: string, requiredVersion: string): Promise<void> {
+async function showIpatoolVersionOutdatedError(installedVersion: string, minimumVersion: string): Promise<void> {
   const instructions = `
-# ipatool version mismatch
+# ipatool is outdated
 
 Installed version: ${installedVersion}
-Required version: ${requiredVersion}
+Minimum required: ${minimumVersion} or newer
 
-# To install the correct version:
-brew uninstall ipatool
-brew install ipatool@${requiredVersion}
+# To upgrade:
+brew upgrade ipatool
 
 # Or install from GitHub releases:
 # Download from: ${IPATOOL_GITHUB_URL}/releases
-# Make sure to download version ${requiredVersion}
+# Make sure to download version ${minimumVersion} or newer
   `.trim();
 
   await showToast({
     style: Toast.Style.Failure,
-    title: "ipatool version mismatch",
-    message: `Installed v${installedVersion}, need v${requiredVersion}`,
+    title: "ipatool Outdated",
+    message: `Installed v${installedVersion}, need v${minimumVersion} or newer`,
     primaryAction: {
       title: "View Instructions",
       onAction: () => {
-        showVersionMismatchInstructions(installedVersion, requiredVersion);
+        showVersionOutdatedInstructions(installedVersion, minimumVersion);
       },
     },
+    secondaryAction: createCopyLogsAction({
+      title: "ipatool Outdated",
+      message: `Installed v${installedVersion}, need v${minimumVersion} or newer`,
+      metadata: { ipatoolPath: IPATOOL_PATH, installedVersion, minimumVersion },
+    }),
   });
 
-  console.log("[ipatool] Version Mismatch Instructions:");
+  console.log("[ipatool] Outdated Version Instructions:");
   console.log(instructions);
-  logger.error(`[ipatool] Version mismatch: installed ${installedVersion}, required ${requiredVersion}`);
+  logger.error(`[ipatool] Version outdated: installed ${installedVersion}, minimum ${minimumVersion}`);
 }
 
 /**
- * Shows version mismatch instructions
+ * Shows upgrade instructions when ipatool is outdated
  */
-async function showVersionMismatchInstructions(installedVersion: string, requiredVersion: string): Promise<void> {
+async function showVersionOutdatedInstructions(installedVersion: string, minimumVersion: string): Promise<void> {
   const instructions = `
-# ipatool version mismatch
+# ipatool is outdated
 
 Installed version: ${installedVersion}
-Required version: ${requiredVersion}
+Minimum required: ${minimumVersion} or newer
 
-# To install the correct version:
-brew uninstall ipatool
-brew install ipatool@${requiredVersion}
+# To upgrade:
+brew upgrade ipatool
 
 # Or install from GitHub releases:
 # Download from: ${IPATOOL_GITHUB_URL}/releases
-# Make sure to download version ${requiredVersion}
+# Make sure to download version ${minimumVersion} or newer
 
 # Current expected path: ${IPATOOL_PATH}
   `.trim();
 
   await showToast({
     style: Toast.Style.Failure,
-    title: "Version Mismatch Instructions",
+    title: "ipatool Upgrade Instructions",
     message: "Check console for details",
   });
 
-  console.log("[ipatool] Version Mismatch Instructions:");
+  console.log("[ipatool] Upgrade Instructions:");
   console.log(instructions);
 }
 
@@ -219,34 +288,6 @@ brew install ipatool@${requiredVersion}
  */
 async function showGenericIpatoolError(error: unknown): Promise<void> {
   await showFailureToast(error, { title: "ipatool validation failed" });
-}
-
-/**
- * Shows installation instructions
- */
-async function showInstallationInstructions(): Promise<void> {
-  const instructions = `
-# Install ipatool using Homebrew (recommended):
-brew uninstall ipatool  # Uninstall if already installed
-brew install ipatool@${REQUIRED_IPATOOL_VERSION}
-
-# Alternative: Manual installation
-# 1. Download from: ${IPATOOL_GITHUB_URL}/releases
-# 2. Make sure to download version ${REQUIRED_IPATOOL_VERSION}
-# 3. Place in /opt/homebrew/bin/ (Apple Silicon) or /usr/local/bin/ (Intel)
-# 4. Make executable: chmod +x /path/to/ipatool
-
-# Current expected path: ${IPATOOL_PATH}
-  `.trim();
-
-  await showToast({
-    style: Toast.Style.Failure,
-    title: "Installation Instructions",
-    message: "Check console for details",
-  });
-
-  console.log("[ipatool] Installation Instructions:");
-  console.log(instructions);
 }
 
 /**

@@ -1,7 +1,7 @@
 import * as Raycast from "@raycast/api";
 const { LocalStorage } = Raycast;
 import { logger } from "@chrismessina/raycast-logger";
-import { validateIpatoolInstallation, executeIpatoolCommand } from "./ipatool-validator";
+import { validateIpatoolInstallation, executeIpatoolCommand, IpatoolSetupError } from "./ipatool-validator";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { handleProcessErrorCleanup } from "./temp-file-manager";
 import { login as ipatoolLogin } from "./ipatool-auth";
@@ -233,7 +233,7 @@ export async function ensureAuthenticated(options?: {
   code?: string;
 }): Promise<boolean> {
   // First validate that ipatool is installed and accessible
-  const isIpatoolValid = await validateIpatoolInstallation();
+  const isIpatoolValid = await validateIpatoolInstallation({ throwOnFailure: true });
   if (!isIpatoolValid) {
     return false;
   }
@@ -355,7 +355,7 @@ export async function ensureAuthenticated(options?: {
     logger.error("Authentication check failed", { error: errorMessage });
 
     // Re-throw NeedsLoginError and Needs2FAError as-is
-    if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+    if (error instanceof NeedsLoginError || error instanceof Needs2FAError || error instanceof IpatoolSetupError) {
       throw error;
     }
 

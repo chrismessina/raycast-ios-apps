@@ -7,9 +7,28 @@ import { ExtensionPreferences } from "../types";
 // Get preferences
 export const preferences = getPreferenceValues<ExtensionPreferences>();
 
+export function expandHomePath(inputPath: string): string {
+  const trimmedPath = inputPath.trim();
+
+  if (trimmedPath === "~") {
+    return homedir();
+  }
+
+  if (trimmedPath.startsWith("~/")) {
+    return join(homedir(), trimmedPath.slice(2));
+  }
+
+  return trimmedPath;
+}
+
+function resolveExecutablePreferencePath(inputPath: string): string {
+  return resolve(normalize(expandHomePath(inputPath)));
+}
+
 // Define the path to ipatool, using the preference if available
-export const IPATOOL_PATH =
-  preferences.ipatoolPath || (process.arch === "arm64" ? "/opt/homebrew/bin/ipatool" : "/usr/local/bin/ipatool");
+export const IPATOOL_PATH = resolveExecutablePreferencePath(
+  preferences.ipatoolPath || (process.arch === "arm64" ? "/opt/homebrew/bin/ipatool" : "/usr/local/bin/ipatool"),
+);
 
 // Comprehensive path validation utilities
 
@@ -59,7 +78,7 @@ export function validateSafePath(inputPath: string): string {
   }
 
   // Normalize and resolve the path
-  const normalized = normalize(inputPath);
+  const normalized = normalize(expandHomePath(inputPath));
   const absolute = resolve(normalized);
 
   // Ensure path stays within safe boundaries

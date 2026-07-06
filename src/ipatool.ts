@@ -21,7 +21,7 @@ import {
 } from "./utils/itunes-api";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
 import { cleanupTempFilesByPattern, handleProcessErrorCleanup, registerTempFile } from "./utils/temp-file-manager";
-import { createSecureIpatoolProcess } from "./utils/ipatool-validator";
+import { createSecureIpatoolProcess, IpatoolSetupError } from "./utils/ipatool-validator";
 
 // Retry configuration for handling transient network errors
 const MAX_RETRIES = 3; // Maximum number of retry attempts
@@ -698,6 +698,11 @@ export async function searchApps(query: string, limit = 20): Promise<IpaToolSear
 
     return searchResponse.apps || [];
   } catch (error) {
+    if (error instanceof IpatoolSetupError) {
+      logger.error("ipatool setup failed during search:", error);
+      return [];
+    }
+
     logger.error("Error searching apps:", error);
     await handleAppSearchError(error instanceof Error ? error : new Error(String(error)), query, "searchApps");
     return [];
@@ -1620,6 +1625,11 @@ export async function getAppDetails(bundleId: string) {
     logger.log(`[ipatool] Successfully parsed app details for ${bundleId}`);
     return result;
   } catch (error) {
+    if (error instanceof IpatoolSetupError) {
+      logger.error(`[ipatool] Setup failed while getting app details for ${bundleId}: ${error.message}`);
+      return null;
+    }
+
     logger.error(
       `[ipatool] Error getting app details for ${bundleId}: ${error instanceof Error ? error.message : String(error)}`,
     );

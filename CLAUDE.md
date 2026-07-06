@@ -69,7 +69,7 @@ Raycast `LocalStorage` (`src/utils/storage.ts`) persists favorites, download his
 
 ### External Dependencies
 
-- `ipatool` v2.3.0+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference.
+- `ipatool` v2.3.1+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference. v2.3.1 is the floor because it restored App Store login after Apple moved the authenticate endpoint (majd/ipatool#507).
 - `@chrismessina/raycast-logger` — custom logger (`logger.log`, `logger.error`); use this rather than `console.*`.
 - `adm-zip` — IPA file inspection.
 - `p-limit` — concurrency control for downloads.

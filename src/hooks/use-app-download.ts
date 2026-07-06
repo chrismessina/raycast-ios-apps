@@ -5,6 +5,7 @@ import { handleDownloadError, handleAuthError } from "../utils/error-handler";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
 import { NeedsLoginError, Needs2FAError, NotYetReleasedError, ensureAuthenticated } from "../utils/auth";
+import { IpatoolSetupError } from "../utils/ipatool-validator";
 import { logger } from "@chrismessina/raycast-logger";
 import { useDownloadHistory } from "./use-download-history";
 import type { AppDetails } from "../types";
@@ -153,7 +154,11 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         `[useAppDownload] Pre-authentication start for ${name} (${bundleId}) – showHudMessages=${showHudMessages}`,
       );
       try {
-        await ensureAuthenticated();
+        const authenticated = await ensureAuthenticated();
+        if (!authenticated) {
+          logger.log(`[useAppDownload] Pre-authentication did not complete for ${name} (${bundleId})`);
+          return undefined;
+        }
         logger.log(`[useAppDownload] Pre-authentication OK for ${name} (${bundleId})`);
         // Transition to downloading phase for this operation
         if (globalDownloadState.activeOpId === operationId) {
@@ -392,6 +397,18 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           await showHUD("Not Released Yet");
         }
         return null;
+      }
+
+      if (error instanceof IpatoolSetupError) {
+        logger.log(`[useAppDownload] ipatool setup failed for ${name} (${bundleId}): ${error.message}`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = error.title;
+          progressToast.message = error.message;
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD(error.title);
+        }
+        return undefined;
       }
 
       // Check if this is a specific authentication error that should be handled by the form flow
