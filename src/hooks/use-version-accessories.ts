@@ -1,5 +1,5 @@
-import { Color, Icon, List } from "@raycast/api";
 import { useMemo } from "react";
+import { Color, Icon, List } from "@raycast/api";
 import type { LatestVersionInfo } from "./use-latest-versions";
 
 interface VersionAccessoriesOptions {

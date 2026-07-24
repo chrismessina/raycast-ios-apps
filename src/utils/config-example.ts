@@ -3,8 +3,8 @@
  * This file demonstrates how to use the config module in different scenarios
  */
 
-import { getConfig, getConfigValue, logCurrentConfig, IntegrityVerification } from "../config";
 import { logger } from "@chrismessina/raycast-logger";
+import { getConfig, getConfigValue, IntegrityVerification, logCurrentConfig } from "../config";
 
 /**
  * Example: Using config in a download function

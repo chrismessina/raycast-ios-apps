@@ -1,14 +1,14 @@
-import { ActionPanel, Action, Icon, Keyboard, Clipboard, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Clipboard, Icon, Keyboard, showToast, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { AppDetails } from "../types";
-import { downloadScreenshots } from "../utils/screenshot-downloader";
-import { downloadAppIcon } from "../utils/icon-downloader";
-import { getAppStoreUrl } from "../utils/constants";
 import { useAppDownload } from "../hooks/use-app-download";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
 import { useFavoriteApps } from "../hooks/use-favorite-apps";
-import { FavoriteActions } from "./favorite-actions";
+import { AppDetails } from "../types";
+import { getAppStoreUrl } from "../utils/constants";
+import { downloadAppIcon } from "../utils/icon-downloader";
+import { downloadScreenshots } from "../utils/screenshot-downloader";
 import { getAppMarkdown } from "./app-detail-content";
+import { FavoriteActions } from "./favorite-actions";
 
 interface AppActionsProps {
   app: AppDetails;

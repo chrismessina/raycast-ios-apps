@@ -1,5 +1,5 @@
-import { useCallback, useState, useEffect } from "react";
-import { showToast, Toast, LocalStorage } from "@raycast/api";
+import { useCallback, useEffect, useState } from "react";
+import { LocalStorage, showToast, Toast } from "@raycast/api";
 import { STORAGE_KEYS, type RecentSearch } from "../utils/storage";
 
 // Re-export for convenience

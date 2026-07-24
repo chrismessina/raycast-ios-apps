@@ -1,10 +1,10 @@
-import { downloadApp, searchApps } from "../ipatool";
 import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
-import { Tool, showToast, Toast, Clipboard, showInFinder } from "@raycast/api";
+import { Clipboard, showInFinder, showToast, Toast, Tool } from "@raycast/api";
+import { downloadApp, searchApps } from "../ipatool";
+import { NotYetReleasedError } from "../utils/auth";
 import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
-import { NotYetReleasedError } from "../utils/auth";
 
 // Constants
 const SEARCH_RESULT_LIMIT = 1;

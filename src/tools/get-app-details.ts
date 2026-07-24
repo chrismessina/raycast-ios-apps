@@ -1,8 +1,8 @@
-import { getAppDetails, searchApps } from "../ipatool";
 import { logger } from "@chrismessina/raycast-logger";
-import { formatPrice, formatDate } from "../utils/formatting";
-import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
+import { getAppDetails, searchApps } from "../ipatool";
 import { getAppStoreUrl } from "../utils/constants";
+import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
+import { formatDate, formatPrice } from "../utils/formatting";
 
 // Constants
 const SEARCH_RESULT_LIMIT = 10;

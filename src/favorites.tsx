@@ -1,12 +1,12 @@
-import { Icon, List, ActionPanel, Action, Image } from "@raycast/api";
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Action, ActionPanel, Icon, Image, List } from "@raycast/api";
 import { useFrecencySorting } from "@raycast/utils";
-import { formatFriendlyDateTime } from "./utils/formatting";
 import { AppActionPanelContent } from "./components/app-action-panel";
 import { ExportActions } from "./components/export-actions";
-import { useAppDownload, useFavoriteApps, useDownloadHistory } from "./hooks";
+import { useAppDownload, useDownloadHistory, useFavoriteApps } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import type { FavoriteApp } from "./hooks/use-favorite-apps";
+import { formatFriendlyDateTime } from "./utils/formatting";
 
 type SortOption = "frecency" | "alphabetical" | "newest" | "oldest" | "mostDownloaded" | "leastDownloaded";
 

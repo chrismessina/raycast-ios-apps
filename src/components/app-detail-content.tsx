@@ -1,9 +1,9 @@
 // Shared component for rendering app detail metadata
-import { Detail, Color, Icon } from "@raycast/api";
+import { Color, Detail, Icon } from "@raycast/api";
 import { AppDetails } from "../types";
-import { formatPrice, formatDate } from "../utils/formatting";
 import { renderStarRating } from "../utils/common";
 import { getAppStoreUrl } from "../utils/constants";
+import { formatDate, formatPrice } from "../utils/formatting";
 
 interface AppDetailContentProps {
   app: AppDetails;

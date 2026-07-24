@@ -2,12 +2,12 @@
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import { showFailureToast } from "@raycast/utils";
-import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api";
-// AppDetails type available if needed for future enhancements
-import { getDownloadsDirectory, validateSafePath, sanitizeFilename } from "./paths";
 import { logger } from "@chrismessina/raycast-logger";
+import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
 import { getConfigValue } from "../config";
+// AppDetails type available if needed for future enhancements
+import { getDownloadsDirectory, sanitizeFilename, validateSafePath } from "./paths";
 
 // Promisify fs functions
 const writeFileAsync = promisify(fs.writeFile);

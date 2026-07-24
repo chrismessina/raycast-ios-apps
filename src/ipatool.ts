@@ -3,25 +3,23 @@ import fs from "fs";
 import https from "https";
 import path from "path";
 import { promisify } from "util";
-
-import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { logger } from "@chrismessina/raycast-logger";
-
+import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { ensureAuthenticated, NeedsLoginError, Needs2FAError, NotYetReleasedError } from "./utils/auth";
-import { cleanAppNameForFilename } from "./utils/formatting";
-import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
-import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
+import { ensureAuthenticated, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "./utils/auth";
 import { extractFilePath, safeJsonParse } from "./utils/common";
+import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
+import { cleanAppNameForFilename } from "./utils/formatting";
+import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
+import { createSecureIpatoolProcess, IpatoolSetupError } from "./utils/ipatool-validator";
 import {
-  convertITunesResultToAppDetails,
   convertIpaToolSearchAppToAppDetails,
+  convertITunesResultToAppDetails,
   fetchITunesAppDetails,
 } from "./utils/itunes-api";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
 import { cleanupTempFilesByPattern, handleProcessErrorCleanup, registerTempFile } from "./utils/temp-file-manager";
-import { createSecureIpatoolProcess, IpatoolSetupError } from "./utils/ipatool-validator";
 
 // Retry configuration for handling transient network errors
 const MAX_RETRIES = 3; // Maximum number of retry attempts

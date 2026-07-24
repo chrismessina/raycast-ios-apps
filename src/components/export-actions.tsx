@@ -1,4 +1,4 @@
-import { ActionPanel, Action, Icon } from "@raycast/api";
+import { Action, ActionPanel, Icon } from "@raycast/api";
 import { useExportFavorites } from "../hooks";
 
 /**

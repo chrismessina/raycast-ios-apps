@@ -1,10 +1,10 @@
-import { Icon, List, ActionPanel, Action, Color, LocalStorage, Image } from "@raycast/api";
-import { useState, useEffect } from "react";
-import { formatPrice, formatDate } from "./utils/formatting";
-import { renderStarRating } from "./utils/common";
+import { useEffect, useState } from "react";
+import { Action, ActionPanel, Color, Icon, Image, List, LocalStorage } from "@raycast/api";
 import { AppActionPanelContent } from "./components/app-action-panel";
-import { useAppSearch, useAppDownload, useFavoriteApps } from "./hooks";
+import { useAppDownload, useAppSearch, useFavoriteApps } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
+import { renderStarRating } from "./utils/common";
+import { formatDate, formatPrice } from "./utils/formatting";
 import { GridSearchView } from "./views/grid-search-view";
 
 const VIEW_MODE_STORAGE_KEY = "search-view-mode";

@@ -1,10 +1,10 @@
-import { useNavigation, popToRoot as apiPopToRoot } from "@raycast/api";
-import React, { useCallback } from "react";
-import { showFailureToast } from "@raycast/utils";
 import { logger } from "@chrismessina/raycast-logger";
+import React, { useCallback } from "react";
+import { popToRoot as apiPopToRoot, useNavigation } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
 import { AppleLoginForm } from "../components/forms/AppleLoginForm";
 import { AppleTwoFactorForm } from "../components/forms/AppleTwoFactorForm";
-import { loginToAppleId, storeAppleId, storePassword, getAppleIdFromStorage } from "../utils/auth";
+import { getAppleIdFromStorage, loginToAppleId, storeAppleId, storePassword } from "../utils/auth";
 
 export interface AuthNavigationHelpers {
   pushLoginForm: (onSuccess?: () => void) => Promise<void>;

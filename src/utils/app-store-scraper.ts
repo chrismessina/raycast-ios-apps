@@ -1,7 +1,7 @@
 // App Store web scraper utility functions using Shoebox JSON method
-import { AppDetails, PlatformType, ScreenshotInfo, PlatformPreferences } from "../types";
 import { logger } from "@chrismessina/raycast-logger";
 import { getPreferenceValues, showToast, Toast } from "@raycast/api";
+import { AppDetails, PlatformPreferences, PlatformType, ScreenshotInfo } from "../types";
 import { APP_STORE_BASE_URL } from "./constants";
 import { handleToolError } from "./error-handler";
 

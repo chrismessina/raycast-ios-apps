@@ -1,7 +1,7 @@
-import { Form, ActionPanel, Action, showToast, Toast, useNavigation } from "@raycast/api";
-import { useRef, useState } from "react";
-import { showFailureToast } from "@raycast/utils";
 import { logger } from "@chrismessina/raycast-logger";
+import { useRef, useState } from "react";
+import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
 import { loginToAppleId } from "../../utils/auth";
 
 interface AppleTwoFactorFormProps {

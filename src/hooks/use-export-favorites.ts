@@ -1,8 +1,8 @@
-import { showToast, Toast, showInFinder, Clipboard } from "@raycast/api";
-import { useCallback } from "react";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { useCallback } from "react";
+import { Clipboard, showInFinder, showToast, Toast } from "@raycast/api";
 import { useFavoriteApps, type FavoriteApp } from "./use-favorite-apps";
 
 /**

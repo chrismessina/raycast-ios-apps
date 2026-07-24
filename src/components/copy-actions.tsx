@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Clipboard, Icon, Keyboard, Toast, showToast } from "@raycast/api";
+import { Action, ActionPanel, Clipboard, Icon, Keyboard, showToast, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { fetchITunesAppDetails } from "../utils/itunes-api";
 import { logger } from "@chrismessina/raycast-logger";
+import { useCallback, useEffect, useState } from "react";
+import { fetchITunesAppDetails } from "../utils/itunes-api";
 
 export interface LatestVersionInfo {
   bundleId: string;

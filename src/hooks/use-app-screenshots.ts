@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";

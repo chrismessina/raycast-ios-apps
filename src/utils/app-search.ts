@@ -1,7 +1,7 @@
 // App search and ranking utility functions
-import type { ITunesResult, IpaToolSearchApp } from "../types";
-import { searchITunesApps } from "./itunes-api";
 import { logger } from "@chrismessina/raycast-logger";
+import type { IpaToolSearchApp, ITunesResult } from "../types";
+import { searchITunesApps } from "./itunes-api";
 
 /**
  * Filter iTunes apps based on relevance to the query

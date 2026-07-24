@@ -1,7 +1,7 @@
 // iTunes API utility functions
-import { showFailureToast } from "@raycast/utils";
-import { AppDetails, ITunesResponse, ITunesResult, IpaToolSearchApp } from "../types";
 import { logger } from "@chrismessina/raycast-logger";
+import { showFailureToast } from "@raycast/utils";
+import { AppDetails, IpaToolSearchApp, ITunesResponse, ITunesResult } from "../types";
 import { ITUNES_API_BASE_URL, ITUNES_LOOKUP_ENDPOINT, ITUNES_SEARCH_ENDPOINT } from "./constants";
 
 // iTunes API Constants (imported from centralized constants)

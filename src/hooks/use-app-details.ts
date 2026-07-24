@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AppDetails } from "../types";
 import { enrichAppDetails } from "../utils/itunes-api";
 

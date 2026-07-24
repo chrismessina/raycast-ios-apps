@@ -1,9 +1,9 @@
-import { searchITunesApps } from "../utils/itunes-api";
 import { logger } from "@chrismessina/raycast-logger";
 import { Tool } from "@raycast/api";
 import type { ITunesResult } from "../types";
 import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";
 import { handleAppSearchError, handleToolError, sanitizeQuery } from "../utils/error-handler";
+import { searchITunesApps } from "../utils/itunes-api";
 
 // Constants
 const SEARCH_RESULT_LIMIT = 10;

@@ -1,10 +1,10 @@
-import { searchApps } from "../ipatool";
-import { enrichAppDetails } from "../utils/itunes-api";
-import { AppDetails } from "../types";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
-import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
+import { searchApps } from "../ipatool";
+import { AppDetails } from "../types";
 import { truncateAtWordBoundary } from "../utils/common";
+import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
+import { enrichAppDetails } from "../utils/itunes-api";
 
 // No initial confirmation - search will execute immediately
 

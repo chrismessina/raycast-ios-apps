@@ -1,8 +1,8 @@
-import { LocalStorage, showToast, Toast } from "@raycast/api";
-import { useState, useEffect, useCallback } from "react";
-import { STORAGE_KEYS } from "../utils/storage";
-import type { AppDetails } from "../types";
 import { logger } from "@chrismessina/raycast-logger";
+import { useCallback, useEffect, useState } from "react";
+import { LocalStorage, showToast, Toast } from "@raycast/api";
+import type { AppDetails } from "../types";
+import { STORAGE_KEYS } from "../utils/storage";
 
 export interface FavoriteApp {
   app: AppDetails;

@@ -1,14 +1,14 @@
-import { useState } from "react";
-import { showToast, Toast, showHUD, Clipboard, showInFinder } from "@raycast/api";
-import { downloadApp, checkForExistingDownload } from "../ipatool";
-import { handleDownloadError, handleAuthError } from "../utils/error-handler";
-import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
-import { AuthNavigationHelpers } from "./use-auth-navigation";
-import { NeedsLoginError, Needs2FAError, NotYetReleasedError, ensureAuthenticated } from "../utils/auth";
-import { IpatoolSetupError } from "../utils/ipatool-validator";
 import { logger } from "@chrismessina/raycast-logger";
-import { useDownloadHistory } from "./use-download-history";
+import { useState } from "react";
+import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
+import { checkForExistingDownload, downloadApp } from "../ipatool";
 import type { AppDetails } from "../types";
+import { ensureAuthenticated, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "../utils/auth";
+import { handleAuthError, handleDownloadError } from "../utils/error-handler";
+import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
+import { IpatoolSetupError } from "../utils/ipatool-validator";
+import { AuthNavigationHelpers } from "./use-auth-navigation";
+import { useDownloadHistory } from "./use-download-history";
 
 // Global download state to prevent concurrent downloads across all hook instances
 const globalDownloadState = {

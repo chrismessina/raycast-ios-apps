@@ -1,7 +1,7 @@
-import { useCallback, useState, useEffect, useMemo } from "react";
-import { showToast, Toast, LocalStorage } from "@raycast/api";
-import { STORAGE_KEYS } from "../utils/storage";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
+import { STORAGE_KEYS } from "../utils/storage";
 
 export interface DownloadHistoryItem {
   app: AppDetails;

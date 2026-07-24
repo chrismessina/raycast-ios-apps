@@ -1,10 +1,11 @@
-import * as Raycast from "@raycast/api";
-const { LocalStorage } = Raycast;
 import { logger } from "@chrismessina/raycast-logger";
-import { validateIpatoolInstallation, executeIpatoolCommand, IpatoolSetupError } from "./ipatool-validator";
-import { analyzeIpatoolError } from "./ipatool-error-patterns";
-import { handleProcessErrorCleanup } from "./temp-file-manager";
+import * as Raycast from "@raycast/api";
 import { login as ipatoolLogin } from "./ipatool-auth";
+import { analyzeIpatoolError } from "./ipatool-error-patterns";
+import { executeIpatoolCommand, IpatoolSetupError, validateIpatoolInstallation } from "./ipatool-validator";
+import { handleProcessErrorCleanup } from "./temp-file-manager";
+
+const { LocalStorage } = Raycast;
 
 // Narrow, optional typing for Raycast's Keychain API to avoid 'any'
 type KeychainAPI = {

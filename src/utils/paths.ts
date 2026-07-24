@@ -1,6 +1,6 @@
-import { homedir } from "os";
 import { existsSync, mkdirSync } from "fs";
-import { resolve, normalize, join } from "path";
+import { homedir } from "os";
+import { join, normalize, resolve } from "path";
 import { getPreferenceValues } from "@raycast/api";
 import { ExtensionPreferences } from "../types";
 

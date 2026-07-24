@@ -1,9 +1,9 @@
 // Centralized error handling utility for iOS Apps extension
-import { showToast, Toast, openExtensionPreferences, open } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { logger } from "@chrismessina/raycast-logger";
+import { open, openExtensionPreferences, showToast, Toast } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
+import { invalidateAuthentication, loginToAppleId, Needs2FAError, NeedsLoginError } from "./auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
-import { loginToAppleId, NeedsLoginError, Needs2FAError, invalidateAuthentication } from "./auth";
 
 /**
  * Sanitize query strings to remove potentially sensitive information before logging

@@ -1,8 +1,8 @@
-import { Icon, List, ActionPanel, Action, Image } from "@raycast/api";
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { formatFriendlyDateTime, cleanAppNameForFilename } from "./utils/formatting";
-import { useAppDownload, useFavoriteApps, useDownloadHistory, useLatestVersions, useVersionAccessories } from "./hooks";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Action, ActionPanel, Icon, Image, List } from "@raycast/api";
+import { useAppDownload, useDownloadHistory, useFavoriteApps, useLatestVersions, useVersionAccessories } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
+import { cleanAppNameForFilename, formatFriendlyDateTime } from "./utils/formatting";
 import type { DownloadHistoryItem } from "./utils/storage";
 import AppDetailView from "./views/app-detail-view";
 

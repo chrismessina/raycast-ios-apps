@@ -1,6 +1,6 @@
-import { Grid, Icon, Color, ActionPanel, Action, Image } from "@raycast/api";
-import { AppDetails } from "../types";
+import { Action, ActionPanel, Color, Grid, Icon, Image } from "@raycast/api";
 import { AppActionPanelContent } from "../components/app-action-panel";
+import { AppDetails } from "../types";
 
 interface GridSearchViewProps {
   apps: AppDetails[];

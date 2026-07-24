@@ -1,8 +1,8 @@
-import { showHUD } from "@raycast/api";
-import { revoke, getAuthInfo } from "./utils/ipatool-auth";
-import { validateIpatoolInstallation } from "./utils/ipatool-validator";
-import { clearStoredCredentials } from "./utils/auth";
 import { logger } from "@chrismessina/raycast-logger";
+import { showHUD } from "@raycast/api";
+import { clearStoredCredentials } from "./utils/auth";
+import { getAuthInfo, revoke } from "./utils/ipatool-auth";
+import { validateIpatoolInstallation } from "./utils/ipatool-validator";
 
 export default async function Command() {
   try {

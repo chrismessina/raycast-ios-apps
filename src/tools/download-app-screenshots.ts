@@ -1,12 +1,12 @@
-import { Tool, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
-import { scrapeAppStoreScreenshots } from "../utils/app-store-scraper";
-import { downloadAppScreenshots } from "../utils/screenshot-downloader";
-import { getDownloadsDirectory } from "../utils/paths";
-import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";
-import { searchITunesApps, convertITunesResultToAppDetails } from "../utils/itunes-api";
 import { logger } from "@chrismessina/raycast-logger";
-import type { PlatformType, ITunesResult } from "../types";
+import { showToast, Toast, Tool } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
+import type { ITunesResult, PlatformType } from "../types";
+import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";
+import { scrapeAppStoreScreenshots } from "../utils/app-store-scraper";
+import { convertITunesResultToAppDetails, searchITunesApps } from "../utils/itunes-api";
+import { getDownloadsDirectory } from "../utils/paths";
+import { downloadAppScreenshots } from "../utils/screenshot-downloader";
 
 type Input = {
   /** The name or search term for the iOS app */

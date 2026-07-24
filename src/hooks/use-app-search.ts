@@ -1,8 +1,8 @@
+import { debounce } from "lodash";
 import { useCallback, useEffect, useState } from "react";
 import { showToast, Toast } from "@raycast/api";
-import { debounce } from "lodash";
 import type { AppDetails } from "../types";
-import { searchITunesApps, convertITunesResultToAppDetails } from "../utils/itunes-api";
+import { convertITunesResultToAppDetails, searchITunesApps } from "../utils/itunes-api";
 import { useRecentSearches, type RecentSearch } from "./use-recent-searches";
 
 interface UseAppSearchResult {

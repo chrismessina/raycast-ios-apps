@@ -1,7 +1,7 @@
-import { Form, ActionPanel, Action } from "@raycast/api";
-import { useState } from "react";
-import { showFailureToast } from "@raycast/utils";
 import { logger } from "@chrismessina/raycast-logger";
+import { useState } from "react";
+import { Action, ActionPanel, Form } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
 
 interface AppleLoginFormProps {
   onSubmit: (credentials: { email: string; password: string }) => void | Promise<void>;

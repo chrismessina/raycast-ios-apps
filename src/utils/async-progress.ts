@@ -3,8 +3,8 @@
  * Provides a counter that updates Raycast toasts as promises settle
  */
 
-import { showToast, Toast } from "@raycast/api";
 import { logger } from "@chrismessina/raycast-logger";
+import { showToast, Toast } from "@raycast/api";
 
 export interface ProgressOptions {
   title: string;
