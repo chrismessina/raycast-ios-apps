@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Raycast extension for searching, viewing, and downloading iOS apps from the App Store. Uses `ipatool` (CLI, v2.3.0+) for App Store auth/downloads and the iTunes Search API + App Store web scraping (shoebox JSON) for rich metadata and screenshots.
+A Raycast extension for searching, viewing, and downloading iOS apps from the App Store. Uses `ipatool` (CLI, v2.3.1+) for App Store auth/downloads and the iTunes Search API + App Store web scraping (shoebox JSON) for rich metadata and screenshots.
 
 ## Commands
 
@@ -69,9 +69,8 @@ Raycast `LocalStorage` (`src/utils/storage.ts`) persists favorites, download his
 
 ### External Dependencies
 
-- `ipatool` v2.3.1+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference. v2.3.1 is the floor because it restored App Store login after Apple moved the authenticate endpoint (majd/ipatool#507).
+- `ipatool` v2.3.1+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference. v2.3.1 is the floor because it restored App Store login after Apple moved the authenticate endpoint (majd/ipatool#507). v2.3.2 (recommended) adds a fallback to legacy Store authentication for extra resilience but is not required — the version gate accepts any build ≥ 2.3.1.
 - `@chrismessina/raycast-logger` — custom logger (`logger.log`, `logger.error`); use this rather than `console.*`.
-- `adm-zip` — IPA file inspection.
 - `p-limit` — concurrency control for downloads.
 - `lodash` — utility functions.
 
