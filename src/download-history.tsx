@@ -15,7 +15,7 @@ export default function DownloadHistory() {
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
 
   const authNavigation = useAuthNavigation();
-  const { downloadApp } = useAppDownload(authNavigation);
+  const { downloadAppDetails } = useAppDownload(authNavigation);
   const { favoriteApps, isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
   const { downloadHistory, removeFromHistory, clearHistory, refresh, isLoading } = useDownloadHistory(100);
 
@@ -147,16 +147,7 @@ export default function DownloadHistory() {
                     version: versionToDownload,
                   };
 
-                  await downloadApp(
-                    app.bundleId,
-                    app.name,
-                    versionToDownload,
-                    app.price,
-                    undefined,
-                    undefined,
-                    app.fileSizeBytes,
-                    updatedApp,
-                  );
+                  await downloadAppDetails(updatedApp);
 
                   // Refresh download history to update counts and versions
                   await refresh();
@@ -195,7 +186,16 @@ export default function DownloadHistory() {
         />
       );
     },
-    [isFavorite, latestVersions, downloadApp, toggleFavorite, removeFromHistory, clearHistory, refresh, accessoriesMap],
+    [
+      isFavorite,
+      latestVersions,
+      downloadAppDetails,
+      toggleFavorite,
+      removeFromHistory,
+      clearHistory,
+      refresh,
+      accessoriesMap,
+    ],
   );
 
   return (

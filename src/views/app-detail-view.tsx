@@ -16,7 +16,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
   // Use the custom hooks
   const { app, isLoading } = useAppDetails(initialApp);
   const authNavigation = useAuthNavigation();
-  const { downloadApp } = useAppDownload(authNavigation);
+  const { downloadAppDetails } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
   const isFavorited = isFavorite(app.bundleId);
 
@@ -39,7 +39,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
               showFailureToast(new Error("Bundle ID is missing"), { title: "Cannot download app" });
               return Promise.resolve(null);
             }
-            return downloadApp(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes, app);
+            return downloadAppDetails(app);
           }}
           showViewDetails={false}
           isFavorited={isFavorited}

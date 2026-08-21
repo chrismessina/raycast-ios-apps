@@ -571,8 +571,25 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     }
   };
 
+  /**
+   * Download an app from its full AppDetails record.
+   *
+   * The only download entry point exposed to views. The positional
+   * `handleDownload` above stays internal because spelling out its eight
+   * arguments at each call site is how `fileSizeBytes` (the pre-release size
+   * gate and integrity check) or the trailing `appDetails` (download-history
+   * recording) got silently dropped from one of them. Pass a modified copy to
+   * override a field — download history does that to fetch a version newer
+   * than the stored one.
+   *
+   * @param app The app to download
+   * @returns The path to the downloaded file, or null/undefined on failure
+   */
+  const downloadAppDetails = (app: AppDetails): Promise<string | null | undefined> =>
+    handleDownload(app.bundleId, app.name, app.version, app.price, true, undefined, app.fileSizeBytes, app);
+
   return {
-    downloadApp: handleDownload,
+    downloadAppDetails,
     isLoading,
     currentDownload,
   };

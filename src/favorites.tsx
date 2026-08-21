@@ -14,7 +14,7 @@ export default function Favorites() {
   const [sortBy, setSortBy] = useState<SortOption>("frecency");
 
   const authNavigation = useAuthNavigation();
-  const { downloadApp } = useAppDownload(authNavigation);
+  const { downloadAppDetails } = useAppDownload(authNavigation);
   const { favoriteApps, clearFavorites, isLoading, addFavorite, removeFavorite } = useFavoriteApps();
   const { getDownloadCount } = useDownloadHistory();
 
@@ -85,16 +85,7 @@ export default function Favorites() {
             <AppActionPanelContent
               app={app}
               onDownload={async () => {
-                const result = await downloadApp(
-                  app.bundleId,
-                  app.name,
-                  app.version,
-                  app.price,
-                  undefined,
-                  undefined,
-                  app.fileSizeBytes,
-                  app,
-                );
+                const result = await downloadAppDetails(app);
 
                 // Track visit for frecency
                 await visitItem(item);

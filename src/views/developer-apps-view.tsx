@@ -24,11 +24,8 @@ export function DeveloperAppsView({ artistId, developerName }: DeveloperAppsView
   const [error, setError] = useState<string | null>(null);
 
   const authNavigation = useAuthNavigation();
-  const { downloadApp } = useAppDownload(authNavigation);
+  const { downloadAppDetails } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
-
-  const handleDownload = (app: AppDetails) =>
-    downloadApp(app.bundleId, app.name, app.version, app.price, undefined, undefined, app.fileSizeBytes, app);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +86,7 @@ export function DeveloperAppsView({ artistId, developerName }: DeveloperAppsView
             app={app}
             subtitle={app.genres?.[0]}
             isFavorited={isFavorite(app.bundleId)}
-            onDownload={handleDownload}
+            onDownload={downloadAppDetails}
             onAddFavorite={addFavorite}
             onRemoveFavorite={removeFavorite}
             // We are already inside this developer's catalog; the action would

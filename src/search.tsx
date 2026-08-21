@@ -43,22 +43,8 @@ export default function Search() {
     removeRecentSearch,
   } = useAppSearch("", 500);
   const authNavigation = useAuthNavigation();
-  const { downloadApp } = useAppDownload(authNavigation);
+  const { downloadAppDetails } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
-
-  // Download handler
-  const handleDownload = async (app: (typeof apps)[0]) => {
-    return await downloadApp(
-      app.bundleId,
-      app.name,
-      app.version,
-      app.price,
-      undefined,
-      undefined,
-      app.fileSizeBytes,
-      app,
-    );
-  };
 
   // Show Grid view when in grid mode and has search text
   if (viewMode === "grid" && searchText) {
@@ -72,7 +58,7 @@ export default function Search() {
         isFavorite={isFavorite}
         addFavorite={addFavorite}
         removeFavorite={removeFavorite}
-        onDownload={handleDownload}
+        onDownload={downloadAppDetails}
         onToggleView={() => handleViewModeChange("list")}
         onSearchTextChange={setSearchText}
       />
@@ -149,7 +135,7 @@ export default function Search() {
               app={app}
               subtitle={app.sellerName}
               isFavorited={isFavorite(app.bundleId)}
-              onDownload={handleDownload}
+              onDownload={downloadAppDetails}
               onAddFavorite={addFavorite}
               onRemoveFavorite={removeFavorite}
             >
