@@ -1155,16 +1155,11 @@ export async function downloadApp(
                     `[ipatool] License required for Apple built-in app ${appName || bundleId}. These apps cannot be downloaded via third-party tools.`,
                   );
 
-                  // Provide a more helpful message for Apple's built-in apps
-                  finalErrorMessage = `"${appName || bundleId}" is an Apple built-in app and cannot be downloaded using third-party tools like ipatool. These apps are pre-installed on iOS devices or available only through official Apple channels.`;
-
-                  if (!suppressHUD) {
-                    await showToast({
-                      style: Toast.Style.Failure,
-                      title: "Apple Built-in App",
-                      message: `${appName || bundleId} cannot be downloaded via ipatool`,
-                    });
-                  }
+                  // Kept to one line: this becomes a toast message, which
+                  // truncates around 150 characters — and the caller prefixes
+                  // it with "Download failed: ". The old version said the same
+                  // thing three ways and got cut off mid-sentence.
+                  finalErrorMessage = `"${appName || bundleId}" is a built-in Apple app and can't be downloaded with ipatool.`;
                 } else {
                   logger.log(
                     `[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`,
