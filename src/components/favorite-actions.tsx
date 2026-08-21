@@ -1,4 +1,4 @@
-import { Action, Icon } from "@raycast/api";
+import { Action, Icon, Keyboard } from "@raycast/api";
 import { AppDetails } from "../types";
 
 interface FavoriteActionsProps {
@@ -25,7 +25,7 @@ export function FavoriteActions({ app, isFavorited, onAddFavorite, onRemoveFavor
       title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
       icon={isFavorited ? Icon.HeartDisabled : Icon.Heart}
       onAction={handleToggleFavorite}
-      shortcut={{ modifiers: ["cmd"], key: "f" }}
+      shortcut={Keyboard.Shortcut.Common.Pin}
     />
   );
 }

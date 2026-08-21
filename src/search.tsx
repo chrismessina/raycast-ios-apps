@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Action, ActionPanel, Color, Icon, Image, List, LocalStorage } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Image, Keyboard, List, LocalStorage } from "@raycast/api";
 import { AppActionPanelContent } from "./components/app-action-panel";
 import { useAppDownload, useAppSearch, useFavoriteApps } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
@@ -101,13 +101,14 @@ export default function Search() {
                       onAction={() => removeRecentSearch(search.query)}
                       icon={Icon.Trash}
                       style={Action.Style.Destructive}
-                      shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                      shortcut={Keyboard.Shortcut.Common.Remove}
                     />
                     <Action
                       title="Clear Recent Searches"
                       onAction={clearRecentSearches}
                       icon={Icon.Trash}
                       style={Action.Style.Destructive}
+                      shortcut={Keyboard.Shortcut.Common.RemoveAll}
                     />
                   </ActionPanel>
                 }
@@ -117,7 +118,7 @@ export default function Search() {
         )}
         <List.EmptyView
           title="Type Query to Search"
-          description="Search for apps by name, developer, or bundle Id."
+          description="Search by name, developer, bundle ID, App Store URL, or app ID."
           icon="no-view@256.png"
         />
       </List>
@@ -129,7 +130,7 @@ export default function Search() {
     <List
       isLoading={isLoading || !isViewModeLoaded}
       onSearchTextChange={setSearchText}
-      searchBarPlaceholder="Search for iOS apps..."
+      searchBarPlaceholder="Search by name, App Store URL, or app ID..."
       throttle
       navigationTitle="Search iOS Apps"
     >
@@ -160,7 +161,7 @@ export default function Search() {
 
             return (
               <List.Item
-                key={app.bundleId}
+                key={app.bundleId || app.id}
                 title={app.name}
                 subtitle={app.sellerName}
                 accessories={[

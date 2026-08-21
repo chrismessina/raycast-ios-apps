@@ -34,6 +34,7 @@ export interface AppDetails {
   releaseDate: string;
   currentVersionReleaseDate?: string;
   trackViewUrl?: string;
+  artistId?: number;
   artistViewUrl?: string;
   screenshotUrls?: string[];
   ipadScreenshotUrls?: string[];

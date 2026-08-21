@@ -11,6 +11,8 @@ interface AppActionPanelProps {
   isFavorited?: boolean;
   onAddFavorite?: (app: AppDetails) => Promise<void>;
   onRemoveFavorite?: (bundleId: string) => Promise<void>;
+  /** Set false inside DeveloperAppsView, where the action would re-push the same view. */
+  showDeveloperApps?: boolean;
 }
 
 /**
@@ -24,6 +26,7 @@ export function AppActionPanelContent({
   isFavorited,
   onAddFavorite,
   onRemoveFavorite,
+  showDeveloperApps = true,
 }: AppActionPanelProps) {
   return (
     <>
@@ -34,6 +37,7 @@ export function AppActionPanelContent({
         isFavorited={isFavorited}
         onAddFavorite={onAddFavorite}
         onRemoveFavorite={onRemoveFavorite}
+        showDeveloperApps={showDeveloperApps}
       />
       <CopyActions app={app} isFavorited={isFavorited} />
     </>

@@ -33,27 +33,27 @@ export function CopyActions({ app, isFavorited = false }: CopyActionsProps) {
       <Action
         title="Copy App Name"
         icon={Icon.Clipboard}
-        shortcut={{ modifiers: ["cmd"], key: "n" }}
+        shortcut={Keyboard.Shortcut.Common.CopyName}
         onAction={() => copyToClipboard(app.name, "App Name")}
       />
       {app.version && (
         <Action
           title="Copy Version"
           icon={Icon.Clipboard}
-          shortcut={{ modifiers: ["cmd"], key: "v" }}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "v" }}
           onAction={() => copyToClipboard(app.version, "App Version")}
         />
       )}
       <Action
         title="Copy Bundle ID"
         icon={Icon.Clipboard}
-        shortcut={{ modifiers: ["cmd"], key: "b" }}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "b" }}
         onAction={() => copyToClipboard(app.bundleId, "Bundle Id")}
       />
       <Action
         title="Copy Developer"
         icon={Icon.Clipboard}
-        shortcut={{ modifiers: ["cmd"], key: "d" }}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
         onAction={() => copyToClipboard(app.sellerName || "Unknown Developer", "Developer")}
       />
       <Action

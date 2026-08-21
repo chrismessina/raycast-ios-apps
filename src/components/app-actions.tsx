@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Clipboard, Icon, Keyboard, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Icon, Keyboard } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { useAppDownload } from "../hooks/use-app-download";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
@@ -6,8 +6,9 @@ import { useFavoriteApps } from "../hooks/use-favorite-apps";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
 import { downloadAppIcon } from "../utils/icon-downloader";
+import { extractAppStoreId } from "../utils/parse-app-query";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
-import { getAppMarkdown } from "./app-detail-content";
+import { DeveloperAppsView } from "../views/developer-apps-view";
 import { FavoriteActions } from "./favorite-actions";
 
 interface AppActionsProps {
@@ -18,6 +19,8 @@ interface AppActionsProps {
   isFavorited?: boolean;
   onAddFavorite?: (app: AppDetails) => Promise<void>;
   onRemoveFavorite?: (bundleId: string) => Promise<void>;
+  /** Set false inside DeveloperAppsView, where the action would re-push the same view. */
+  showDeveloperApps?: boolean;
 }
 
 /**
@@ -31,9 +34,14 @@ export function AppActions({
   isFavorited: isFavoritedProp,
   onAddFavorite,
   onRemoveFavorite,
+  showDeveloperApps = true,
 }: AppActionsProps) {
   // Create a fallback App Store URL if trackViewUrl is not available
   const appStoreUrl = app.trackViewUrl || (app.id ? getAppStoreUrl(app.id) : undefined);
+
+  // Favorites/history entries persisted before `artistId` existed still carry
+  // the developer URL, so recover the ID from it rather than hiding the action.
+  const artistId = app.artistId ?? extractAppStoreId(app.artistViewUrl);
 
   // Auth-aware download helpers
   const authNavigation = useAuthNavigation();
@@ -103,23 +111,13 @@ export function AppActions({
     }
   };
 
-  const handleCopyDescriptionMarkdown = async () => {
-    try {
-      const markdown = getAppMarkdown(app, isFavorited);
-      await Clipboard.copy(markdown);
-      await showToast(Toast.Style.Success, "Copied Description as Markdown");
-    } catch (error) {
-      showFailureToast({ title: "Error copying description", message: String(error) });
-    }
-  };
-
   return (
     <ActionPanel.Section title="App Actions">
       <Action
         title="Download App"
         icon={Icon.Download}
         onAction={handleDownload}
-        shortcut={{ modifiers: ["cmd"], key: "s" }}
+        shortcut={Keyboard.Shortcut.Common.Save}
       />
       <FavoriteActions
         app={app}
@@ -128,22 +126,16 @@ export function AppActions({
         onRemoveFavorite={handleRemoveFavorite}
       />
       <Action
-        title="Copy Description as Markdown"
-        icon={Icon.QuoteBlock}
-        onAction={handleCopyDescriptionMarkdown}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
-      />
-      <Action
         title="Download Screenshots"
         icon={Icon.Image}
         onAction={handleDownloadScreenshots}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "s" }}
+        shortcut={{ modifiers: ["cmd", "opt"], key: "s" }}
       />
       <Action
         title="Download App Icon"
         icon={Icon.AppWindowGrid3x3}
         onAction={handleDownloadIcon}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "i" }}
+        shortcut={{ modifiers: ["cmd", "opt"], key: "i" }}
       />
       {appStoreUrl && (
         <Action.OpenInBrowser
@@ -153,7 +145,17 @@ export function AppActions({
           shortcut={Keyboard.Shortcut.Common.Open}
         />
       )}
-      {app.artistViewUrl && <Action.OpenInBrowser title="View Developer" icon={Icon.Person} url={app.artistViewUrl} />}
+      {showDeveloperApps && artistId && (
+        <Action.Push
+          title={`View Apps by ${app.sellerName || app.artistName}`}
+          icon={Icon.Person}
+          target={<DeveloperAppsView artistId={artistId} developerName={app.sellerName || app.artistName} />}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+        />
+      )}
+      {app.artistViewUrl && (
+        <Action.OpenInBrowser title="View Developer in App Store" icon={Icon.Globe} url={app.artistViewUrl} />
+      )}
     </ActionPanel.Section>
   );
 }

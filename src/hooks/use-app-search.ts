@@ -1,8 +1,15 @@
+import { logger } from "@chrismessina/raycast-logger";
 import { debounce } from "lodash";
 import { useCallback, useEffect, useState } from "react";
 import { showToast, Toast } from "@raycast/api";
-import type { AppDetails } from "../types";
-import { convertITunesResultToAppDetails, searchITunesApps } from "../utils/itunes-api";
+import type { AppDetails, ITunesResult } from "../types";
+import {
+  convertITunesResultToAppDetails,
+  fetchITunesAppDetails,
+  lookupITunesAppById,
+  searchITunesApps,
+} from "../utils/itunes-api";
+import { parseAppQuery } from "../utils/parse-app-query";
 import { useRecentSearches, type RecentSearch } from "./use-recent-searches";
 
 interface UseAppSearchResult {
@@ -67,8 +74,38 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
     setError(null);
 
     try {
-      // Search using iTunes API - no authentication required, rich data immediately
-      const itunesResults = await searchITunesApps(query.trim(), 20);
+      // An App Store URL, track ID, or bundle ID resolves through the exact
+      // lookup endpoint — term search misses apps Apple has not indexed yet.
+      // If lookup finds nothing (e.g. a dotted string that only looked like a
+      // bundle ID), fall back to a normal term search rather than dead-ending.
+      const parsed = parseAppQuery(query);
+      logger.log(`[Search] "${query}" parsed as ${parsed.kind} → "${parsed.value}"`);
+      let itunesResults: ITunesResult[] = [];
+
+      if (parsed.kind === "trackId") {
+        const app = await lookupITunesAppById(parsed.value);
+        itunesResults = app ? [app] : [];
+        logger.log(`[Search] Track ID lookup for ${parsed.value}: ${app ? `matched "${app.trackName}"` : "no match"}`);
+      } else if (parsed.kind === "bundleId") {
+        const app = await fetchITunesAppDetails(parsed.value);
+        itunesResults = app ? [app] : [];
+        logger.log(`[Search] Bundle ID lookup for ${parsed.value}: ${app ? `matched "${app.trackName}"` : "no match"}`);
+      }
+
+      // A pasted App Store URL has nothing sensible to term-search, so a miss
+      // there stays a miss. Every other classification falls back — a bare
+      // number can be an app's actual name, and a dotted string can just look
+      // like a bundle ID.
+      const canFallBackToTermSearch = parsed.kind !== "trackId" || !parsed.fromUrl;
+
+      if (itunesResults.length === 0 && canFallBackToTermSearch) {
+        if (parsed.kind !== "term") {
+          logger.log(`[Search] ${parsed.kind} lookup empty; falling back to term search for "${query}"`);
+        }
+        // Search using iTunes API - no authentication required, rich data immediately
+        itunesResults = await searchITunesApps(query.trim(), 20);
+        logger.log(`[Search] Term search for "${query}" returned ${itunesResults.length} result(s)`);
+      }
 
       if (itunesResults.length === 0) {
         setApps([]);
@@ -80,8 +117,11 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
       const mappedApps = itunesResults.map((result) => convertITunesResultToAppDetails(result));
 
       // Deduplicate apps by bundleId to prevent duplicate keys in React
-      const uniqueApps = Array.from(new Map(mappedApps.map((app) => [app.bundleId, app])).values());
+      // Key on `id` when iTunes omits a bundleId — otherwise every partial
+      // record collapses onto the same empty-string key and results vanish.
+      const uniqueApps = Array.from(new Map(mappedApps.map((app) => [app.bundleId || app.id, app])).values());
 
+      logger.log(`[Search] Showing ${uniqueApps.length} app(s) after de-duplicating by bundle ID`);
       setApps(uniqueApps);
       setTotalResults(uniqueApps.length);
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Action, ActionPanel, Icon, Image, List } from "@raycast/api";
+import { Action, ActionPanel, Icon, Image, Keyboard, List } from "@raycast/api";
 import { useFrecencySorting } from "@raycast/utils";
 import { AppActionPanelContent } from "./components/app-action-panel";
 import { ExportActions } from "./components/export-actions";
@@ -113,7 +113,7 @@ export default function Favorites() {
                 onAction={clearFavorites}
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                shortcut={{ modifiers: ["cmd", "shift"], key: "delete" }}
+                shortcut={Keyboard.Shortcut.Common.RemoveAll}
               />
             </ActionPanel.Section>
           </ActionPanel>
@@ -146,7 +146,7 @@ export default function Favorites() {
                 onAction={clearFavorites}
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                shortcut={{ modifiers: ["cmd", "shift"], key: "delete" }}
+                shortcut={Keyboard.Shortcut.Common.RemoveAll}
               />
             </ActionPanel.Section>
           </ActionPanel>

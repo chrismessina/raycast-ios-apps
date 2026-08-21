@@ -57,7 +57,7 @@ export function GridSearchView({
 
             return (
               <Grid.Item
-                key={app.bundleId}
+                key={app.bundleId || app.id}
                 content={{
                   source: iconUrl || Icon.AppWindow,
                   ...(iconUrl && { mask: Image.Mask.RoundedRectangle }),

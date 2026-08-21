@@ -143,6 +143,7 @@ export function convertITunesResultToAppDetails(
     releaseDate: itunesData.releaseDate || base.releaseDate || "",
     currentVersionReleaseDate: itunesData.currentVersionReleaseDate || base.currentVersionReleaseDate,
     trackViewUrl: itunesData.trackViewUrl || base.trackViewUrl,
+    artistId: itunesData.artistId || base.artistId,
     artistViewUrl: itunesData.artistViewUrl || base.artistViewUrl,
     // Screenshot URLs from iTunes API
     screenshotUrls: itunesData.screenshotUrls || base.screenshotUrls || [],
@@ -294,4 +295,84 @@ export async function enrichAppDetails(app: AppDetails): Promise<AppDetails> {
     logger.error(`[iTunes API] Error enriching app details for ${app.bundleId}:`, error);
     return app; // Return the original app details if enrichment fails
   }
+}
+
+/**
+ * Look up apps on the iTunes lookup endpoint.
+ *
+ * Unlike {@link searchITunesApps}, lookup is exact: it resolves an app by its
+ * numeric App Store track ID (the `id` in an `apps.apple.com/.../id123` URL) or
+ * every app belonging to a developer's artist ID. This is the path that finds
+ * brand-new apps the term-search index has not picked up yet.
+ *
+ * Throws on a genuine API/network failure so callers can tell "this developer
+ * has no apps" apart from "iTunes is unreachable" — an empty array means the
+ * former and nothing else.
+ *
+ * @param params Lookup query params (e.g. `{ id: "6761221765" }`)
+ * @param context Short label for logging
+ * @returns Matching iTunes results (software entries only)
+ * @throws When the lookup request fails after retries
+ */
+async function lookupITunes(params: Record<string, string>, context: string): Promise<ITunesResult[]> {
+  await rateLimit(apiRateLimiter);
+
+  const url = new URL(ITUNES_API_BASE_URL + ITUNES_LOOKUP_ENDPOINT);
+  url.searchParams.append("country", ITUNES_DEFAULT_COUNTRY);
+  url.searchParams.append("entity", ITUNES_SOFTWARE_ENTITY);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.append(key, value);
+  }
+
+  logger.log(`[iTunes API] Looking up ${context} from ${url.toString()}`);
+
+  const response = await fetchITunesWithRetry(url.toString(), context);
+  const data = (await response.json()) as ITunesResponse;
+
+  if (data.resultCount === 0 || !data.results?.length) {
+    logger.log(`[iTunes API] No results found for ${context}`);
+    return [];
+  }
+
+  // A developer lookup returns the artist record alongside their apps; only
+  // software entries can be converted to AppDetails.
+  const software = data.results.filter((result) => result.wrapperType === "software");
+  logger.log(
+    `[iTunes API] Lookup for ${context} returned ${data.resultCount} record(s), ${software.length} of them apps`,
+  );
+  return software;
+}
+
+/**
+ * Look up a single app by its numeric App Store track ID.
+ * @param trackId App Store track ID (digits only)
+ * @returns The app, or null when no app carries that ID
+ */
+export async function lookupITunesAppById(trackId: string): Promise<ITunesResult | null> {
+  const results = await lookupITunes({ id: trackId }, `app id ${trackId}`);
+  return results[0] ?? null;
+}
+
+/**
+ * Hard cap on a developer lookup. Apple's lookup endpoint accepts at most 200
+ * results, so a prolific developer's tail is not reachable this way — callers
+ * must say so rather than presenting a truncated list as complete.
+ */
+export const ARTIST_LOOKUP_LIMIT = 200;
+
+/**
+ * Look up every app published by a developer.
+ * @param artistId iTunes artist (developer) ID
+ * @param limit Maximum number of apps to return
+ * @returns The developer's apps, most-rated first
+ */
+export async function lookupITunesAppsByArtist(
+  artistId: number | string,
+  artistLimit = ARTIST_LOOKUP_LIMIT,
+): Promise<ITunesResult[]> {
+  const results = await lookupITunes(
+    { id: artistId.toString(), limit: artistLimit.toString() },
+    `developer ${artistId}`,
+  );
+  return results.sort((a, b) => (b.userRatingCount ?? 0) - (a.userRatingCount ?? 0));
 }

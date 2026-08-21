@@ -1,6 +1,6 @@
 import { logger } from "@chrismessina/raycast-logger";
 import { useRef, useState } from "react";
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, Form, Keyboard, showToast, Toast, useNavigation } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { loginToAppleId } from "../../utils/auth";
 
@@ -110,9 +110,9 @@ export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
           <Action
             title={isResending ? "Resending…" : "Resend Code"}
             onAction={handleResend}
-            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
           />
-          <Action title="Cancel" onAction={() => pop()} shortcut={{ modifiers: ["cmd"], key: "," }} />
+          <Action title="Cancel" onAction={() => pop()} />
         </ActionPanel>
       }
     >

@@ -13,13 +13,13 @@ export function ExportActions() {
         title="Export Favorites to Markdown"
         onAction={exportToMarkdown}
         icon={Icon.Document}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
+        shortcut={{ modifiers: ["cmd", "opt"], key: "m" }}
       />
       <Action
         title="Export Favorites to CSV"
         onAction={exportToCSV}
         icon={Icon.Document}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
+        shortcut={{ modifiers: ["cmd", "opt"], key: "e" }}
       />
     </ActionPanel.Section>
   );

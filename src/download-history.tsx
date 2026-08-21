@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Action, ActionPanel, Icon, Image, List } from "@raycast/api";
+import { Action, ActionPanel, Icon, Image, Keyboard, List } from "@raycast/api";
 import { useAppDownload, useDownloadHistory, useFavoriteApps, useLatestVersions, useVersionAccessories } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import { cleanAppNameForFilename, formatFriendlyDateTime } from "./utils/formatting";
@@ -162,7 +162,7 @@ export default function DownloadHistory() {
                   await refresh();
                 }}
                 icon={Icon.Download}
-                shortcut={{ modifiers: ["cmd"], key: "s" }}
+                shortcut={Keyboard.Shortcut.Common.Save}
               />
               <Action.Push
                 title="View App Details"
@@ -174,20 +174,21 @@ export default function DownloadHistory() {
                 title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
                 onAction={() => toggleFavorite(item)}
                 icon={isFavorited ? Icon.HeartDisabled : Icon.Heart}
-                shortcut={{ modifiers: ["cmd"], key: "f" }}
+                shortcut={Keyboard.Shortcut.Common.Pin}
               />
               <Action
                 title="Delete History Item"
                 onAction={() => removeFromHistory(app.bundleId)}
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                shortcut={Keyboard.Shortcut.Common.Remove}
               />
               <Action
                 title="Clear All History"
                 onAction={clearHistory}
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
+                shortcut={Keyboard.Shortcut.Common.RemoveAll}
               />
             </ActionPanel>
           }
@@ -228,13 +229,14 @@ export default function DownloadHistory() {
               title="Check for Updates"
               onAction={forceRefresh}
               icon={Icon.RotateClockwise}
-              shortcut={{ modifiers: ["cmd"], key: "r" }}
+              shortcut={Keyboard.Shortcut.Common.Refresh}
             />
             <Action
               title="Clear All History"
               onAction={clearHistory}
               icon={Icon.Trash}
               style={Action.Style.Destructive}
+              shortcut={Keyboard.Shortcut.Common.RemoveAll}
             />
           </ActionPanel>
         )
