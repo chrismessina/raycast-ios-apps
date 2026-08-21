@@ -2,7 +2,7 @@ import { logger } from "@chrismessina/raycast-logger";
 import { useCallback, useEffect, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
-import { STORAGE_KEYS } from "../utils/storage";
+import { STORAGE_KEYS, withoutCachedITunesData } from "../utils/storage";
 
 export interface FavoriteApp {
   app: AppDetails;
@@ -33,7 +33,7 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
         const stored = await LocalStorage.getItem<string>(STORAGE_KEYS.FAVORITE_APPS);
         if (stored) {
           const favorites: FavoriteApp[] = JSON.parse(stored);
-          setFavoriteApps(favorites);
+          setFavoriteApps(favorites.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) })));
         } else {
           setFavoriteApps([]);
         }
@@ -49,8 +49,9 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
   // Persist to LocalStorage
   const persistFavorites = useCallback(async (favorites: FavoriteApp[]) => {
     try {
-      await LocalStorage.setItem(STORAGE_KEYS.FAVORITE_APPS, JSON.stringify(favorites));
-      setFavoriteApps(favorites);
+      const slim = favorites.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
+      await LocalStorage.setItem(STORAGE_KEYS.FAVORITE_APPS, JSON.stringify(slim));
+      setFavoriteApps(slim);
     } catch (error) {
       console.error("Error persisting favorite apps:", error);
       throw error;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
-import { STORAGE_KEYS } from "../utils/storage";
+import { STORAGE_KEYS, withoutCachedITunesData } from "../utils/storage";
 
 export interface DownloadHistoryItem {
   app: AppDetails;
@@ -47,7 +47,7 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
 
       if (historyStored) {
         const history: DownloadHistoryItem[] = JSON.parse(historyStored);
-        setDownloadHistory(history);
+        setDownloadHistory(history.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) })));
       }
 
       if (countsStored) {
@@ -69,8 +69,9 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   // Persist history to LocalStorage
   const persistHistory = useCallback(async (history: DownloadHistoryItem[]) => {
     try {
-      await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(history));
-      setDownloadHistory(history);
+      const slim = history.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
+      await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(slim));
+      setDownloadHistory(slim);
     } catch (error) {
       console.error("Error persisting download history:", error);
       throw error;

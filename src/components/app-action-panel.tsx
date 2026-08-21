@@ -6,11 +6,11 @@ import { CopyActions } from "./copy-actions";
 
 interface AppActionPanelProps {
   app: AppDetails;
-  onDownload?: (app: AppDetails) => Promise<string | null | undefined>;
+  onDownload: (app: AppDetails) => Promise<string | null | undefined>;
   showViewDetails?: boolean;
-  isFavorited?: boolean;
-  onAddFavorite?: (app: AppDetails) => Promise<void>;
-  onRemoveFavorite?: (bundleId: string) => Promise<void>;
+  isFavorited: boolean;
+  onAddFavorite: (app: AppDetails) => Promise<void>;
+  onRemoveFavorite: (bundleId: string) => Promise<void>;
   /** Set false inside DeveloperAppsView, where the action would re-push the same view. */
   showDeveloperApps?: boolean;
 }

@@ -39,15 +39,6 @@ export interface AppDetails {
   screenshotUrls?: string[];
   ipadScreenshotUrls?: string[];
   appletvScreenshotUrls?: string[];
-  // Raw iTunes API response data
-  itunesData?: {
-    screenshotUrls?: string[];
-    ipadScreenshotUrls?: string[];
-    appletvScreenshotUrls?: string[];
-    watchScreenshotUrls?: string[];
-
-    [key: string]: unknown;
-  };
 }
 
 /**

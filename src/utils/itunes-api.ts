@@ -149,8 +149,6 @@ export function convertITunesResultToAppDetails(
     screenshotUrls: itunesData.screenshotUrls || base.screenshotUrls || [],
     ipadScreenshotUrls: itunesData.ipadScreenshotUrls || base.ipadScreenshotUrls || [],
     appletvScreenshotUrls: itunesData.appletvScreenshotUrls || base.appletvScreenshotUrls || [],
-    // Store the raw iTunes API data for access to all fields
-    itunesData: itunesData,
   };
 }
 

@@ -1,8 +1,5 @@
 import { Action, ActionPanel, Icon, Keyboard } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { useAppDownload } from "../hooks/use-app-download";
-import { useAuthNavigation } from "../hooks/use-auth-navigation";
-import { useFavoriteApps } from "../hooks/use-favorite-apps";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
 import { downloadAppIcon } from "../utils/icon-downloader";
@@ -11,14 +8,20 @@ import { downloadScreenshots } from "../utils/screenshot-downloader";
 import { DeveloperAppsView } from "../views/developer-apps-view";
 import { FavoriteActions } from "./favorite-actions";
 
+// Download and favorite state are REQUIRED, not optional with a hook fallback.
+// AppActions renders once per list item, so a `useFavoriteApps()` fallback in
+// here meant every visible row independently read and parsed the whole
+// favorites blob from LocalStorage and retained its own copy — N duplicate
+// copies of the same data inside a 100 MB heap. Every call site already owns
+// this state; make it pass it down.
 interface AppActionsProps {
   app: AppDetails;
-  onDownload?: (app: AppDetails) => Promise<string | null | undefined>;
+  onDownload: (app: AppDetails) => Promise<string | null | undefined>;
   onDownloadScreenshots?: (app: AppDetails) => Promise<string | null | undefined>;
   onDownloadIcon?: (app: AppDetails) => Promise<string | null | undefined>;
-  isFavorited?: boolean;
-  onAddFavorite?: (app: AppDetails) => Promise<void>;
-  onRemoveFavorite?: (bundleId: string) => Promise<void>;
+  isFavorited: boolean;
+  onAddFavorite: (app: AppDetails) => Promise<void>;
+  onRemoveFavorite: (bundleId: string) => Promise<void>;
   /** Set false inside DeveloperAppsView, where the action would re-push the same view. */
   showDeveloperApps?: boolean;
 }
@@ -31,7 +34,7 @@ export function AppActions({
   onDownload,
   onDownloadScreenshots,
   onDownloadIcon,
-  isFavorited: isFavoritedProp,
+  isFavorited,
   onAddFavorite,
   onRemoveFavorite,
   showDeveloperApps = true,
@@ -43,37 +46,9 @@ export function AppActions({
   // the developer URL, so recover the ID from it rather than hiding the action.
   const artistId = app.artistId ?? extractAppStoreId(app.artistViewUrl);
 
-  // Auth-aware download helpers
-  const authNavigation = useAuthNavigation();
-  const { downloadApp: downloadWithAuth } = useAppDownload(authNavigation);
-
-  // Favorite management - use props if provided, otherwise use hook
-  const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
-  const isFavorited = isFavoritedProp !== undefined ? isFavoritedProp : isFavorite(app.bundleId);
-  const handleAddFavorite = onAddFavorite || addFavorite;
-  const handleRemoveFavorite = onRemoveFavorite || removeFavorite;
-
-  // Default download handler if none provided
   const handleDownload = async () => {
     try {
-      if (onDownload) {
-        return await onDownload(app);
-      }
-
-      // Fall back to auth-aware download via hook if no handler provided.
-      // Pass app.fileSizeBytes and the full app (AppDetails) so the pre-release
-      // gate, integrity check, and download-history recording all work — same
-      // signature the other six call sites use.
-      return await downloadWithAuth(
-        app.bundleId,
-        app.name,
-        app.version,
-        app.price,
-        undefined,
-        undefined,
-        app.fileSizeBytes,
-        app,
-      );
+      return await onDownload(app);
     } catch (error) {
       console.error("Error downloading app:", error);
       showFailureToast({ title: "Error downloading app", message: String(error) });
@@ -122,8 +97,8 @@ export function AppActions({
       <FavoriteActions
         app={app}
         isFavorited={isFavorited}
-        onAddFavorite={handleAddFavorite}
-        onRemoveFavorite={handleRemoveFavorite}
+        onAddFavorite={onAddFavorite}
+        onRemoveFavorite={onRemoveFavorite}
       />
       <Action
         title="Download Screenshots"

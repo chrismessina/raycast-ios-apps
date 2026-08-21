@@ -175,23 +175,6 @@ export default function Search() {
                   },
                 ]}
                 icon={iconUrl ? { source: iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
-                detail={
-                  <List.Item.Detail
-                    markdown={`
-${iconUrl ? `![App Icon](${iconUrl}?raycast-width=96&raycast-height=96)` : ""}
-
-## ${app.name}
-
-**${app.sellerName}** • ${formatPrice(app.price, app.currency)} • ${ratingText}
-
-${app.description ? app.description.substring(0, 300) + (app.description.length > 300 ? "..." : "") : "No description available"}
-
----
-
-*Press ⏎ to view full details*
-                    `}
-                  />
-                }
                 actions={
                   <ActionPanel>
                     <AppActionPanelContent

@@ -36,6 +36,32 @@ export interface DownloadHistoryItem {
   filePath?: string;
 }
 
+/**
+ * Drop the legacy `itunesData` blob from a previously-persisted app.
+ *
+ * AppDetails used to carry the entire unparsed iTunes record alongside the
+ * fields already flattened out of it — description, every screenshot URL, the
+ * lot. Nothing ever read it, so the field is gone from the type, but entries
+ * written before that removal still hold it on disk and `JSON.parse` hands it
+ * back regardless of the type. Stripping on read matters because a Raycast
+ * command gets a 100 MB JS heap and the parsed favorites/history array is held
+ * for the life of the view.
+ *
+ * Applied on read and on write, so old entries shed the payload immediately and
+ * shed it permanently the next time they are saved.
+ *
+ * @param app An app loaded from LocalStorage
+ * @returns The same app without the legacy payload
+ */
+export function withoutCachedITunesData(app: AppDetails): AppDetails {
+  if (!("itunesData" in app)) {
+    return app;
+  }
+  const slim: AppDetails & { itunesData?: unknown } = { ...app };
+  delete slim.itunesData;
+  return slim;
+}
+
 export interface DownloadCount {
   bundleId: string;
   count: number;

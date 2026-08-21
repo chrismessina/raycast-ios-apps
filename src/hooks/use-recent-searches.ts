@@ -135,7 +135,8 @@ export function useRecentSearches(limit = 50): UseRecentSearchesResult {
   }, []);
 
   return {
-    recentSearches: recentSearches.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit),
+    // Copy before sorting — Array.sort mutates, and this is React state.
+    recentSearches: [...recentSearches].sort((a, b) => b.timestamp - a.timestamp).slice(0, limit),
     addRecentSearch,
     removeRecentSearch,
     clearRecentSearches,
