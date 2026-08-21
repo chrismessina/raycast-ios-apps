@@ -1,0 +1,10 @@
+# funding.yml
+
+# Replace with up to 4 GitHub Sponsors handles, e.g., 'sponsors: [name1, name2]'
+github: [chrismessina]
+
+# Replace with up to 4 custom funding URLs, e.g., 'custom: https://example.com/donate'
+custom: [https://venmo.com/Chris-Messina]
+
+# For supported platforms beyond GitHub Sponsors, replace with up to 4 usernames
+ko_fi: [chris]
