@@ -1,5 +1,14 @@
 # iOS App Search
 
+<div align="center">
+  <a href="https://github.com/chrismessina">
+    <img src="https://img.shields.io/github/followers/chrismessina?label=Follow%20chrismessina&style=social" alt="Follow @chrismessina">
+  </a>
+  <a href="https://github.com/chrismessina/raycast-ios-apps/stargazers">
+    <img src="https://img.shields.io/github/stars/chrismessina/raycast-ios-apps?style=social" alt="Stars">
+  </a>
+</div>
+
 _Search, view, and download iOS apps from the App Store in Raycast._
 
 ![screenshot-1](./metadata/screenshot-1.png){ width="700" }
@@ -11,9 +20,10 @@ _Search, view, and download iOS apps from the App Store in Raycast._
 
 ## Features
 
-- **Search**: Quickly search for iOS apps by name, developer, or bundle ID
+- **Search**: Quickly search for iOS apps by name, developer, bundle ID, App Store URL, or numeric app ID — pasting a URL or ID finds brand-new apps that Apple's search index has not picked up yet
 - **Recent Searches**: Automatically tracks your search history for quick access to previous queries
 - **Rich App Details**: View comprehensive app information including ratings, screenshots, and metadata
+- **Developer's Apps**: Browse every app by a developer in a list inside Raycast, without opening the App Store
 - **Download**: Download IPA files directly to your computer
 - **Favorites**: Save your favorite apps for quick access and export them to Markdown or CSV
 - **Download History**: Track all your app downloads with sorting, filtering, and download count tracking
@@ -33,7 +43,7 @@ This extension requires [Homebrew](https://brew.sh), a package manager for macOS
 
 ### ipatool
 
-Once you have Homebrew installed, install [ipatool](https://github.com/majd/ipatool) (version 2.3.1 or greater), a command-line tool for interacting with Apple's App Store using this command:
+Once you have Homebrew installed, install [ipatool](https://github.com/majd/ipatool) (version 2.3.1 or greater; 2.3.2 recommended), a command-line tool for interacting with Apple's App Store using this command:
 
 ```bash
 brew uninstall ipatool  # Uninstall if already installed
@@ -56,15 +66,10 @@ If your installation is in a different location, you can specify the custom path
 
 The extension uses a dual-source approach to provide comprehensive app information:
 
-1. **ipatool**: Provides the core search functionality and app download capabilities
-2. **iTunes API**: Enriches the search results with additional metadata such as:
-   - High-resolution app icons and screenshots
-   - Ratings and reviews information
-   - Detailed app descriptions
-   - Release dates and version history
-   - Developer information and links
+1. **iTunes API**: Powers the Search command and supplies the metadata — high-resolution icons and screenshots, ratings and reviews, descriptions, release dates and version history, and developer information. No Apple ID is required to search.
+2. **ipatool**: Handles App Store authentication and IPA downloads, and backs the search used by the Raycast AI tools (which does require authentication).
 
-This combination ensures you get the most complete and up-to-date information about iOS apps.
+Search accepts more than a name. Because Apple's term-search index lags the App Store by hours to days, a just-released app can be missing from a name search while still resolving by ID — so pasting an App Store URL (`https://apps.apple.com/us/app/.../id6761221765`), a bare numeric app ID, or a bundle ID routes to Apple's exact lookup endpoint instead. A bundle ID or bare number that finds nothing falls back to a normal name search.
 
 ### Screenshot Extraction with Shoebox JSON
 
@@ -108,7 +113,7 @@ The shoebox parsing helper is designed to handle changes in Apple's App Store st
 
 ### Apple ID Authentication
 
-This extension requires you to authenticate with your Apple ID in order to search and download apps from the App Store. The authentication process is handled securely through `ipatool`:
+This extension requires you to authenticate with your Apple ID in order to download apps from the App Store. Searching and viewing app details work without signing in. The authentication process is handled securely through `ipatool`:
 
 - Your Apple ID credentials are never stored within the Raycast extension
 - Authentication is handled directly by ipatool, which securely stores credentials in your system's keychain
@@ -306,6 +311,20 @@ Options:
 
 The download tool will search for the app, retrieve its details, and download the IPA file to your specified download directory.
 
+### Download iOS App Screenshots
+
+Download an app's App Store screenshots at full resolution.
+
+```bash
+Download @ios-apps screenshots for "Instagram"
+```
+
+Options:
+
+- `query`: The name or search term for the iOS app (required)
+
+Screenshots are saved to your download directory, organized by platform according to your platform preferences.
+
 ### Logout Command
 
 The Logout command provides a secure way to manage your authentication:
@@ -324,7 +343,8 @@ Downloaded apps are saved as IPA files to your specified downloads directory (de
 
 - **Authentication Failures**: If you're having trouble authenticating, try running `ipatool auth login` directly in your terminal
 - **Download Errors**: Make sure you have sufficient disk space and permissions to write to your downloads directory
-- **Search Not Working**: Verify that ipatool is correctly installed and accessible from the path specified in preferences
+- **Search Not Working**: The Search command uses Apple's iTunes API and needs no ipatool or Apple ID — if it returns nothing for an app you know exists, the app is likely too new to be indexed, so paste its App Store URL or numeric app ID instead
+- **AI Tool Search Failing**: The AI tools search via ipatool, so verify that ipatool is correctly installed, accessible from the path specified in preferences, and authenticated
 
 ## Credits
 
