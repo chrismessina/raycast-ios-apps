@@ -82,14 +82,15 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500): UseAppSe
       logger.log(`[Search] "${query}" parsed as ${parsed.kind} → "${parsed.value}"`);
       let itunesResults: ITunesResult[] = [];
 
-      if (parsed.kind === "trackId") {
-        const app = await lookupITunesAppById(parsed.value);
+      if (parsed.kind !== "term") {
+        const app =
+          parsed.kind === "trackId"
+            ? await lookupITunesAppById(parsed.value)
+            : await fetchITunesAppDetails(parsed.value);
         itunesResults = app ? [app] : [];
-        logger.log(`[Search] Track ID lookup for ${parsed.value}: ${app ? `matched "${app.trackName}"` : "no match"}`);
-      } else if (parsed.kind === "bundleId") {
-        const app = await fetchITunesAppDetails(parsed.value);
-        itunesResults = app ? [app] : [];
-        logger.log(`[Search] Bundle ID lookup for ${parsed.value}: ${app ? `matched "${app.trackName}"` : "no match"}`);
+        logger.log(
+          `[Search] ${parsed.kind} lookup for ${parsed.value}: ${app ? `matched "${app.trackName}"` : "no match"}`,
+        );
       }
 
       // A pasted App Store URL has nothing sensible to term-search, so a miss

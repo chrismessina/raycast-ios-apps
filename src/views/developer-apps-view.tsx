@@ -1,13 +1,11 @@
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
-import { ActionPanel, Color, Icon, Image, List } from "@raycast/api";
+import { Icon, List } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { AppActionPanelContent } from "../components/app-action-panel";
+import { AppListItem } from "../components/app-list-item";
 import { useAppDownload, useFavoriteApps } from "../hooks";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
 import { AppDetails } from "../types";
-import { renderStarRating } from "../utils/common";
-import { formatDate, formatPrice } from "../utils/formatting";
 import { ARTIST_LOOKUP_LIMIT, convertITunesResultToAppDetails, lookupITunesAppsByArtist } from "../utils/itunes-api";
 
 interface DeveloperAppsViewProps {
@@ -28,6 +26,9 @@ export function DeveloperAppsView({ artistId, developerName }: DeveloperAppsView
   const authNavigation = useAuthNavigation();
   const { downloadApp } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
+
+  const handleDownload = (app: AppDetails) =>
+    downloadApp(app.bundleId, app.name, app.version, app.price, undefined, undefined, app.fileSizeBytes, app);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,55 +83,20 @@ export function DeveloperAppsView({ artistId, developerName }: DeveloperAppsView
         icon={error ? Icon.Warning : Icon.Person}
       />
       <List.Section title={apps.length > 0 ? sectionTitle : ""}>
-        {apps.map((app) => {
-          const rating = app.averageUserRatingForCurrentVersion || app.averageUserRating;
-          const isFavorited = isFavorite(app.bundleId);
-
-          return (
-            <List.Item
-              key={app.bundleId || app.id}
-              title={app.name}
-              subtitle={app.genres?.[0]}
-              icon={app.iconUrl ? { source: app.iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
-              accessories={[
-                { text: app.version },
-                { text: formatPrice(app.price, app.currency) },
-                { text: formatDate(app.currentVersionReleaseDate || app.releaseDate) },
-                { text: rating ? renderStarRating(rating) : "" },
-                {
-                  icon: { source: isFavorited ? Icon.Heart : Icon.HeartDisabled, tintColor: Color.Magenta },
-                  tooltip: isFavorited ? "Favorited" : "Not Favorited",
-                },
-              ]}
-              actions={
-                <ActionPanel>
-                  <AppActionPanelContent
-                    app={app}
-                    onDownload={() =>
-                      downloadApp(
-                        app.bundleId,
-                        app.name,
-                        app.version,
-                        app.price,
-                        undefined,
-                        undefined,
-                        app.fileSizeBytes,
-                        app,
-                      )
-                    }
-                    showViewDetails={true}
-                    // We are already inside this developer's catalog; the action
-                    // would only push an identical view onto the stack.
-                    showDeveloperApps={false}
-                    isFavorited={isFavorited}
-                    onAddFavorite={addFavorite}
-                    onRemoveFavorite={removeFavorite}
-                  />
-                </ActionPanel>
-              }
-            />
-          );
-        })}
+        {apps.map((app) => (
+          <AppListItem
+            key={app.bundleId || app.id}
+            app={app}
+            subtitle={app.genres?.[0]}
+            isFavorited={isFavorite(app.bundleId)}
+            onDownload={handleDownload}
+            onAddFavorite={addFavorite}
+            onRemoveFavorite={removeFavorite}
+            // We are already inside this developer's catalog; the action would
+            // only push an identical view onto the stack.
+            showDeveloperApps={false}
+          />
+        ))}
       </List.Section>
     </List>
   );

@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { Action, ActionPanel, Color, Icon, Image, Keyboard, List, LocalStorage } from "@raycast/api";
-import { AppActionPanelContent } from "./components/app-action-panel";
+import { Action, ActionPanel, Icon, Keyboard, List, LocalStorage } from "@raycast/api";
+import { AppListItem } from "./components/app-list-item";
 import { useAppDownload, useAppSearch, useFavoriteApps } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
-import { renderStarRating } from "./utils/common";
-import { formatDate, formatPrice } from "./utils/formatting";
 import { GridSearchView } from "./views/grid-search-view";
 
 const VIEW_MODE_STORAGE_KEY = "search-view-mode";
@@ -145,70 +143,26 @@ export default function Search() {
       {/* Show results when available */}
       {!error && apps.length > 0 && (
         <List.Section key="search-results" title={totalResults > 0 ? `Results (${totalResults})` : ""}>
-          {apps.map((app) => {
-            // Get the app rating
-            const rating = app.averageUserRatingForCurrentVersion || app.averageUserRating;
-            const ratingText = rating ? renderStarRating(rating) : "";
-
-            // Format release date
-            const releaseDate = formatDate(app.currentVersionReleaseDate || app.releaseDate);
-
-            // Get app icon (standardized to best resolution)
-            const iconUrl = app.iconUrl;
-
-            // Check if app is favorited
-            const isFavorited = isFavorite(app.bundleId);
-
-            return (
-              <List.Item
-                key={app.bundleId || app.id}
-                title={app.name}
-                subtitle={app.sellerName}
-                accessories={[
-                  { text: app.version },
-                  { text: formatPrice(app.price, app.currency) },
-                  { text: releaseDate },
-                  { text: ratingText },
-                  {
-                    icon: { source: isFavorited ? Icon.Heart : Icon.HeartDisabled, tintColor: Color.Magenta },
-                    tooltip: isFavorited ? "Favorited" : "Not Favorited",
-                  },
-                ]}
-                icon={iconUrl ? { source: iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
-                actions={
-                  <ActionPanel>
-                    <AppActionPanelContent
-                      app={app}
-                      onDownload={() =>
-                        downloadApp(
-                          app.bundleId,
-                          app.name,
-                          app.version,
-                          app.price,
-                          undefined,
-                          undefined,
-                          app.fileSizeBytes,
-                          app,
-                        )
-                      }
-                      showViewDetails={true}
-                      isFavorited={isFavorited}
-                      onAddFavorite={addFavorite}
-                      onRemoveFavorite={removeFavorite}
-                    />
-                    <ActionPanel.Section title="View">
-                      <Action
-                        title="Show Grid View"
-                        icon={Icon.AppWindowGrid3x3}
-                        onAction={() => handleViewModeChange("grid")}
-                        shortcut={{ modifiers: ["cmd", "shift"], key: "g" }}
-                      />
-                    </ActionPanel.Section>
-                  </ActionPanel>
-                }
-              />
-            );
-          })}
+          {apps.map((app) => (
+            <AppListItem
+              key={app.bundleId || app.id}
+              app={app}
+              subtitle={app.sellerName}
+              isFavorited={isFavorite(app.bundleId)}
+              onDownload={handleDownload}
+              onAddFavorite={addFavorite}
+              onRemoveFavorite={removeFavorite}
+            >
+              <ActionPanel.Section title="View">
+                <Action
+                  title="Show Grid View"
+                  icon={Icon.AppWindowGrid3x3}
+                  onAction={() => handleViewModeChange("grid")}
+                  shortcut={{ modifiers: ["cmd", "shift"], key: "g" }}
+                />
+              </ActionPanel.Section>
+            </AppListItem>
+          ))}
         </List.Section>
       )}
     </List>

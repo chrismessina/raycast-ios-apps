@@ -45,6 +45,7 @@ export function AppActions({
   // Favorites/history entries persisted before `artistId` existed still carry
   // the developer URL, so recover the ID from it rather than hiding the action.
   const artistId = app.artistId ?? extractAppStoreId(app.artistViewUrl);
+  const developerName = app.sellerName || app.artistName;
 
   const handleDownload = async () => {
     try {
@@ -122,9 +123,9 @@ export function AppActions({
       )}
       {showDeveloperApps && artistId && (
         <Action.Push
-          title={`View Apps by ${app.sellerName || app.artistName}`}
+          title={`View Apps by ${developerName}`}
           icon={Icon.Person}
-          target={<DeveloperAppsView artistId={artistId} developerName={app.sellerName || app.artistName} />}
+          target={<DeveloperAppsView artistId={artistId} developerName={developerName} />}
           shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
         />
       )}
