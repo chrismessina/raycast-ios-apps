@@ -2,7 +2,7 @@ import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
 import { Clipboard, showInFinder, showToast, Toast, Tool } from "@raycast/api";
 import { downloadApp, searchApps } from "../ipatool";
-import { NotYetReleasedError } from "../utils/auth";
+import { BuiltInAppError, NotYetReleasedError } from "../utils/auth";
 import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 
@@ -143,6 +143,10 @@ export default async function downloadIosApp(input: Input) {
       // Pre-release / Coming Soon: detect via typed error first (carries the
       // classification through unchanged) and fall back to error-string
       // analysis in case the error bubbled up another path.
+      if (downloadError instanceof BuiltInAppError) {
+        return { success: false, message: downloadError.message };
+      }
+
       if (downloadError instanceof NotYetReleasedError) {
         return { success: false, message: `${appName} isn't available for download yet (pre-release).` };
       }

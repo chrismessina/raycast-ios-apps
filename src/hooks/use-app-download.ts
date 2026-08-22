@@ -3,7 +3,13 @@ import { useState } from "react";
 import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
 import { checkForExistingDownload, downloadApp } from "../ipatool";
 import type { AppDetails } from "../types";
-import { ensureAuthenticated, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "../utils/auth";
+import {
+  BuiltInAppError,
+  ensureAuthenticated,
+  Needs2FAError,
+  NeedsLoginError,
+  NotYetReleasedError,
+} from "../utils/auth";
 import { handleAuthError, handleDownloadError } from "../utils/error-handler";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { IpatoolSetupError } from "../utils/ipatool-validator";
@@ -30,12 +36,17 @@ const authAttemptsByOp = new Map<string, number>();
 // user. Auth errors are handled separately (they jump to the sign-in form
 // instead of producing a generic toast). Anything not in this map falls back
 // to "Download Failed".
+// Named rather than read back off ERROR_TYPE_TITLES, which is a Partial and so
+// types every lookup as possibly undefined.
+const BUILT_IN_APP_TITLE = "Built-in Apple App";
+
 const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> = {
   network: "Network Error",
   app_not_found: "App Not Found",
   rate_limited: "Rate Limited",
   maintenance: "App Store Maintenance",
   not_yet_released: "Not Released Yet",
+  built_in_app: BUILT_IN_APP_TITLE,
   regional_restriction: "Region Restricted",
   account_restriction: "Account Restricted",
 };
@@ -395,6 +406,24 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           progressToast.message = error.message;
         } else if (showHudMessages && !authNavigation) {
           await showHUD("Not Released Yet");
+        }
+        return null;
+      }
+
+      if (error instanceof BuiltInAppError) {
+        logger.log(`[useAppDownload] Built-in Apple app rejected by the Store for ${name} (${bundleId}).`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = BUILT_IN_APP_TITLE;
+          progressToast.message = error.message;
+          progressToast.primaryAction = {
+            title: "Copy Error",
+            onAction: () => {
+              Clipboard.copy(error.message);
+            },
+          };
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD(BUILT_IN_APP_TITLE);
         }
         return null;
       }

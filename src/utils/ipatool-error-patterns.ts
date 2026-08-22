@@ -41,9 +41,38 @@ export interface IpatoolErrorInfo {
     | "session_expired"
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
     | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
+    | "built_in_app" // Apple's own apps, which the Store never licenses to third-party clients
     | "regional_restriction"
     | "account_restriction"
     | "generic";
+}
+
+/**
+ * Is this one of Apple's built-in apps?
+ *
+ * Unlike every other classification in this file, this one is decided by the
+ * bundle ID rather than by an error string — Apple's apps all live under
+ * `com.apple.`, and the Store's refusal to license them surfaces as an
+ * indistinguishable generic "license required". Checking the ID lets callers
+ * fail fast, before spawning ipatool or prompting for a sign-in that cannot
+ * help.
+ *
+ * @param bundleId The app's bundle identifier
+ * @returns True when the App Store will never license this app to ipatool
+ */
+export function isAppleBuiltInApp(bundleId: string): boolean {
+  return bundleId.startsWith("com.apple.");
+}
+
+/**
+ * The user-facing explanation for {@link isAppleBuiltInApp}. Deliberately one
+ * short clause: it is rendered as a toast message, which truncates.
+ *
+ * @param appName The app's display name, falling back to its bundle ID
+ * @returns A single-sentence explanation
+ */
+export function builtInAppMessage(appName: string): string {
+  return `"${appName}" is a built-in Apple app and can't be downloaded with ipatool.`;
 }
 
 /**

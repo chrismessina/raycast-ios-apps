@@ -47,6 +47,22 @@ export class NotYetReleasedError extends Error {
   }
 }
 
+/**
+ * Thrown when the requested app is one of Apple's own built-in apps (Apple TV,
+ * Wallet, Apple Music and friends — bundle IDs under `com.apple.`). The App
+ * Store will not issue a license for these to a third-party client, so ipatool
+ * can never download them; it is a permanent property of the app, not a
+ * transient failure. Typed so callers can say that plainly instead of letting
+ * the message fall through the generic analyzer and come out as
+ * "Download failed: ... cannot be downloaded".
+ */
+export class BuiltInAppError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BuiltInAppError";
+  }
+}
+
 // Service name for secure keychain storage
 const PASSWORD_SERVICE = "ios-apps-apple-password";
 

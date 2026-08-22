@@ -7,11 +7,22 @@ import { logger } from "@chrismessina/raycast-logger";
 import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
-import { ensureAuthenticated, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "./utils/auth";
+import {
+  BuiltInAppError,
+  ensureAuthenticated,
+  Needs2FAError,
+  NeedsLoginError,
+  NotYetReleasedError,
+} from "./utils/auth";
 import { extractFilePath, safeJsonParse } from "./utils/common";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
 import { cleanAppNameForFilename } from "./utils/formatting";
-import { analyzeIpatoolError, type IpatoolErrorInfo } from "./utils/ipatool-error-patterns";
+import {
+  analyzeIpatoolError,
+  builtInAppMessage,
+  isAppleBuiltInApp,
+  type IpatoolErrorInfo,
+} from "./utils/ipatool-error-patterns";
 import { createSecureIpatoolProcess, IpatoolSetupError } from "./utils/ipatool-validator";
 import {
   convertIpaToolSearchAppToAppDetails,
@@ -1145,21 +1156,15 @@ export async function downloadApp(
 
               // Check if this is a license required error for a free app
               if (errorAnalysis.isLicenseRequired && isFreeApp(price)) {
-                // Check if this is an Apple built-in app (these cannot be downloaded via ipatool)
-                // Apple's built-in apps (e.g., Apple Wallet, Apple Music) have bundle IDs starting with "com.apple."
-                // and cannot be downloaded through third-party tools due to App Store restrictions
-                const isAppleBuiltInApp = bundleId.startsWith("com.apple.");
-
-                if (isAppleBuiltInApp) {
+                if (isAppleBuiltInApp(bundleId)) {
                   logger.log(
-                    `[ipatool] License required for Apple built-in app ${appName || bundleId}. These apps cannot be downloaded via third-party tools.`,
+                    `[ipatool] License required for built-in Apple app ${appName || bundleId}; the Store will not license these to ipatool.`,
                   );
 
-                  // Kept to one line: this becomes a toast message, which
-                  // truncates around 150 characters — and the caller prefixes
-                  // it with "Download failed: ". The old version said the same
-                  // thing three ways and got cut off mid-sentence.
-                  finalErrorMessage = `"${appName || bundleId}" is a built-in Apple app and can't be downloaded with ipatool.`;
+                  // Typed, so the caller states the reason plainly rather than
+                  // letting the generic analyzer wrap it as "Download failed:".
+                  reject(new BuiltInAppError(builtInAppMessage(appName || bundleId)));
+                  return;
                 } else {
                   logger.log(
                     `[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`,
