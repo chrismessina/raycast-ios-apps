@@ -42,9 +42,22 @@ export interface IpatoolErrorInfo {
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
     | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
     | "built_in_app" // Apple's own apps, which the Store never licenses to third-party clients
+    | "apple_auth_gate" // Apple refuses the auth handshake outright; no client-side remedy
     | "regional_restriction"
     | "account_restriction"
     | "generic";
+}
+
+const DOWNLOAD_FAILURE_PREFIX = "Download failed:";
+
+/**
+ * Prefix a raw failure string once, however many times it is analyzed.
+ *
+ * @param message The already-sanitized failure text
+ * @returns The message with exactly one "Download failed:" prefix
+ */
+function prefixDownloadFailure(message: string): string {
+  return message.startsWith(DOWNLOAD_FAILURE_PREFIX) ? message : `${DOWNLOAD_FAILURE_PREFIX} ${message}`;
 }
 
 /**
@@ -265,6 +278,39 @@ export function analyzeIpatoolError(
       userMessage: "Insufficient disk space. Free up at least 500 MB and try again.",
       suggestedAction: "Open Disk Usage",
       errorType: "disk_space",
+    };
+  }
+
+  // Apple's commerce auth gate (majd/ipatool#522, #523).
+  //
+  // Since 2026-08-19/20 both the native and the legacy MZFinance authenticate
+  // endpoints answer with HTTP 403 (sometimes 204) and an empty or non-plist
+  // body, *before* credentials are read. The store credential is now a Privacy
+  // Pass token signed by a Secure Enclave key behind FairPlay attestation,
+  // gated by entitlements only Apple's signed `appstoreagent` holds — iMazing
+  // and even iTunes 12.6.5.3 on genuine Apple hardware fail the same way.
+  //
+  // Must classify BEFORE permission_denied: a "403 Forbidden" phrasing would
+  // otherwise match that block's `forbidden` and read as a filesystem problem.
+  // isAuthError stays false on purpose — bouncing to the sign-in form sends the
+  // user to re-enter credentials that were never the issue.
+  // Requires the FULL tuple — Apple's wording AND a 403/204. `empty or
+  // non-plist body` on its own also describes ipatool's 429 and 5xx responses,
+  // and matching it alone stole those from the transient rate_limited and
+  // maintenance classifications below, turning a "wait and retry" into a
+  // terminal "nothing you can do".
+  if (
+    fullMessage.includes("unexpected response from apple") &&
+    fullMessage.includes("empty or non-plist body") &&
+    (fullMessage.includes("http 403") || fullMessage.includes("http 204"))
+  ) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "Apple is blocking third-party downloads. Not a credentials problem — signing in again won't help.",
+      errorType: "apple_auth_gate",
     };
   }
 
@@ -499,8 +545,11 @@ export function analyzeIpatoolError(
     is2FARequired: false,
     isCredentialError: false,
     isLicenseRequired: false,
+    // Idempotent prefix. This analyzer runs twice on the same failure — once in
+    // ipatool.ts and again on the thrown message in the download hook — so an
+    // unconditional prefix produced "Download failed: Download failed: ...".
     userMessage: errorMessage.trim()
-      ? `Download failed: ${sanitizeQuery(errorMessage.trim())}`
+      ? prefixDownloadFailure(sanitizeQuery(errorMessage.trim()))
       : "Download failed. Please try again or check your connection.",
     errorType: "generic",
   };

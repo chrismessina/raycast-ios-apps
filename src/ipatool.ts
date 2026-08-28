@@ -8,6 +8,7 @@ import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { getConfig } from "./config";
 import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import {
+  AppleAuthGateError,
   BuiltInAppError,
   ensureAuthenticated,
   Needs2FAError,
@@ -499,6 +500,17 @@ export async function purchaseApp(
     logger.error(`[ipatool] Pre-release / Coming Soon detected during purchase: ${errorAnalysis.userMessage}`);
     done({ result: "not_yet_released" });
     throw new NotYetReleasedError(errorAnalysis.userMessage);
+  }
+
+  // Same reasoning as above: a free app hits "license is required" first, so
+  // Apple's gate surfaces HERE rather than on the download call. Returning it
+  // as a plain PurchaseResult let the caller wrap it into "Could not get a
+  // license for X: ...", which erased the signature and produced a generic
+  // toast well over the length limit.
+  if (errorAnalysis.errorType === "apple_auth_gate") {
+    logger.error(`[ipatool] Apple auth gate during purchase for ${displayName}: ${errorAnalysis.userMessage}`);
+    done({ result: "failed", errorType: errorAnalysis.errorType });
+    throw new AppleAuthGateError(errorAnalysis.userMessage);
   }
 
   done({ result: "failed", errorType: errorAnalysis.errorType });
@@ -1149,10 +1161,32 @@ export async function downloadApp(
               // Use the error analysis we already performed above
               // (errorAnalysis is already defined from the timeout check)
 
-              // Use the analyzed error message and routing
+              // Apple's auth gate has no client-side remedy; carry it as a typed
+              // error so the caller states that instead of re-deriving it from a
+              // wrapped string (and so it never bounces to the sign-in form).
+              if (errorAnalysis.errorType === "apple_auth_gate") {
+                logger.error(`[ipatool] Apple auth gate hit for ${appName || bundleId}: ${errorAnalysis.userMessage}`);
+                reject(new AppleAuthGateError(errorAnalysis.userMessage));
+                return;
+              }
+
+              // Use the analyzed error message and routing. Several userMessages
+              // open with a literal "App" standing in for the app's name — swap
+              // in the real one.
+              //
+              // ANCHORED AND WORD-BOUNDED ON PURPOSE. A bare
+              // `.replace("App", name)` matches the first "App" ANYWHERE,
+              // including inside "Apple": it turned "unexpected response from
+              // Apple (HTTP 403)" into `unexpected response from "Tolan: Your
+              // Friendly Guide"le (HTTP 403)`. The `(?! Store)` guard keeps
+              // "App Store is temporarily unavailable" intact — there "App"
+              // names Apple's store, not this app.
               let finalErrorMessage = errorAnalysis.userMessage.includes(appName || bundleId)
                 ? errorAnalysis.userMessage
-                : errorAnalysis.userMessage.replace("App", `"${appName || bundleId}"`);
+                : // Callback form on purpose: a plain string replacement would let
+                  // `$&` / `$'` inside an app NAME be interpreted as replacement
+                  // metacharacters and echo the match back instead of the name.
+                  errorAnalysis.userMessage.replace(/^App(?! Store)\b/, () => `"${appName || bundleId}"`);
 
               // Check if this is a license required error for a free app
               if (errorAnalysis.isLicenseRequired && isFreeApp(price)) {
@@ -1216,6 +1250,14 @@ export async function downloadApp(
                   } catch (purchaseError) {
                     // If purchase failed due to auth (e.g. expired token, password changed),
                     // propagate NeedsLoginError directly so the download hook redirects to sign-in
+                    // Apple's gate is terminal and already typed — rethrow so the
+                    // hook's typed branch sees it instead of a wrapped string.
+                    if (purchaseError instanceof AppleAuthGateError) {
+                      logger.error(`[ipatool] Apple auth gate during license purchase for ${appName || bundleId}`);
+                      reject(purchaseError);
+                      return;
+                    }
+
                     if (purchaseError instanceof Error && purchaseError.name === "NeedsLoginError") {
                       logger.error(`[ipatool] Auth required during license purchase for ${appName || bundleId}`);
                       reject(purchaseError);

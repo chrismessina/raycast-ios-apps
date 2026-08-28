@@ -1,5 +1,6 @@
 import { ChildProcess } from "child_process";
 import { logger } from "@chrismessina/raycast-logger";
+import { AppleAuthGateError } from "./errors";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { createSecureIpatoolProcess, executeIpatoolCommand } from "./ipatool-validator";
 
@@ -151,8 +152,19 @@ export async function login({ email, password, code, onTwoFactorPrompt }: LoginO
         return;
       }
 
-      // Credential or other auth errors -> reject with friendly message
       const message = info.userMessage || `Authentication failed (exit code ${code ?? "unknown"})`;
+
+      // Apple's commerce gate must be typed HERE, at the origin. The friendly
+      // message no longer carries the 403 signature, and it is re-analyzed
+      // twice downstream (loginToAppleId, then ensureAuthenticated) — both of
+      // which would classify it as generic and lose the routing.
+      if (info.errorType === "apple_auth_gate") {
+        logger.error("[ipatool-auth] Apple auth gate during login:", message);
+        reject(new AppleAuthGateError(message));
+        return;
+      }
+
+      // Credential or other auth errors -> reject with friendly message
       logger.error("[ipatool-auth] login failed:", message);
       reject(new Error(message));
     });

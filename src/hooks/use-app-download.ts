@@ -4,6 +4,7 @@ import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api
 import { checkForExistingDownload, downloadApp } from "../ipatool";
 import type { AppDetails } from "../types";
 import {
+  AppleAuthGateError,
   BuiltInAppError,
   ensureAuthenticated,
   Needs2FAError,
@@ -39,6 +40,7 @@ const authAttemptsByOp = new Map<string, number>();
 // Named rather than read back off ERROR_TYPE_TITLES, which is a Partial and so
 // types every lookup as possibly undefined.
 const BUILT_IN_APP_TITLE = "Built-in Apple App";
+const APPLE_AUTH_GATE_TITLE = "Downloads Blocked by Apple";
 
 const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> = {
   network: "Network Error",
@@ -47,6 +49,7 @@ const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> 
   maintenance: "App Store Maintenance",
   not_yet_released: "Not Released Yet",
   built_in_app: BUILT_IN_APP_TITLE,
+  apple_auth_gate: APPLE_AUTH_GATE_TITLE,
   regional_restriction: "Region Restricted",
   account_restriction: "Account Restricted",
 };
@@ -406,6 +409,26 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           progressToast.message = error.message;
         } else if (showHudMessages && !authNavigation) {
           await showHUD("Not Released Yet");
+        }
+        return null;
+      }
+
+      // Apple refuses the auth handshake itself — there is no retry, no
+      // re-login, and no setting that fixes it. Terminal by construction.
+      if (error instanceof AppleAuthGateError) {
+        logger.error(`[useAppDownload] Apple auth gate for ${name} (${bundleId}); download is not possible.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = APPLE_AUTH_GATE_TITLE;
+          progressToast.message = error.message;
+          progressToast.primaryAction = {
+            title: "Copy Error",
+            onAction: () => {
+              Clipboard.copy(error.message);
+            },
+          };
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD(APPLE_AUTH_GATE_TITLE);
         }
         return null;
       }

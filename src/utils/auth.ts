@@ -1,9 +1,13 @@
 import { logger } from "@chrismessina/raycast-logger";
 import * as Raycast from "@raycast/api";
+import { AppleAuthGateError, BuiltInAppError, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "./errors";
 import { login as ipatoolLogin } from "./ipatool-auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { executeIpatoolCommand, IpatoolSetupError, validateIpatoolInstallation } from "./ipatool-validator";
 import { handleProcessErrorCleanup } from "./temp-file-manager";
+
+// Re-exported so every existing `from "./auth"` importer keeps working.
+export { AppleAuthGateError, BuiltInAppError, Needs2FAError, NeedsLoginError, NotYetReleasedError };
 
 const { LocalStorage } = Raycast;
 
@@ -15,53 +19,6 @@ type KeychainAPI = {
 };
 
 const Keychain: KeychainAPI = ((Raycast as unknown as { Keychain?: KeychainAPI }).Keychain ?? {}) as KeychainAPI;
-
-/**
- * Custom error types for authentication flow
- */
-export class NeedsLoginError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "NeedsLoginError";
-  }
-}
-
-export class Needs2FAError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "Needs2FAError";
-  }
-}
-
-/**
- * Thrown when ipatool reports that an app is not yet available for download
- * (typical signature: pre-release / "Coming Soon" titles whose listing exists
- * but whose purchase API returns "item is temporarily unavailable"). Carried
- * across the ipatool → hook boundary so the UI can show the specific
- * "Not Released Yet" message without re-parsing wrapped strings.
- */
-export class NotYetReleasedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "NotYetReleasedError";
-  }
-}
-
-/**
- * Thrown when the requested app is one of Apple's own built-in apps (Apple TV,
- * Wallet, Apple Music and friends — bundle IDs under `com.apple.`). The App
- * Store will not issue a license for these to a third-party client, so ipatool
- * can never download them; it is a permanent property of the app, not a
- * transient failure. Typed so callers can say that plainly instead of letting
- * the message fall through the generic analyzer and come out as
- * "Download failed: ... cannot be downloaded".
- */
-export class BuiltInAppError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "BuiltInAppError";
-  }
-}
 
 // Service name for secure keychain storage
 const PASSWORD_SERVICE = "ios-apps-apple-password";
@@ -219,8 +176,10 @@ export async function loginToAppleId(appleId?: string, password?: string, twoFac
     done({ result: "success" });
     logger.info("[Auth] Successfully authenticated with Apple ID");
   } catch (error) {
-    // Re-throw our own typed errors as-is
-    if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+    // Re-throw our own typed errors as-is. AppleAuthGateError included: the
+    // re-analysis below sees only the friendly text and would demote it to
+    // generic, losing the "signing in again won't help" routing.
+    if (error instanceof NeedsLoginError || error instanceof Needs2FAError || error instanceof AppleAuthGateError) {
       throw error;
     }
 
@@ -371,8 +330,13 @@ export async function ensureAuthenticated(options?: {
 
     logger.error("Authentication check failed", { error: errorMessage });
 
-    // Re-throw NeedsLoginError and Needs2FAError as-is
-    if (error instanceof NeedsLoginError || error instanceof Needs2FAError || error instanceof IpatoolSetupError) {
+    // Re-throw our typed errors as-is, for the same reason as in loginToAppleId.
+    if (
+      error instanceof NeedsLoginError ||
+      error instanceof Needs2FAError ||
+      error instanceof IpatoolSetupError ||
+      error instanceof AppleAuthGateError
+    ) {
       throw error;
     }
 
