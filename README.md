@@ -1,354 +1,241 @@
-# iOS App Search
-
 <div align="center">
-  <a href="https://github.com/chrismessina">
-    <img src="https://img.shields.io/github/followers/chrismessina?label=Follow%20chrismessina&style=social" alt="Follow @chrismessina">
-  </a>
-  <a href="https://github.com/chrismessina/raycast-ios-apps/stargazers">
-    <img src="https://img.shields.io/github/stars/chrismessina/raycast-ios-apps?style=social" alt="Stars">
-  </a>
+
+# iOS Apps
+
+[![Licence MIT](https://img.shields.io/badge/Licence-MIT-22C55E?style=flat-square)](LICENSE)
+[![Follow @chrismessina](https://img.shields.io/github/followers/chrismessina?label=Follow%20chrismessina&style=social)](https://github.com/chrismessina)
+[![Stars](https://img.shields.io/github/stars/chrismessina/raycast-ios-apps?style=social)](https://github.com/chrismessina/raycast-ios-apps/stargazers)
+
+**Search, inspect, and download iOS apps from the App Store — without leaving Raycast.**
+
+[Features](#features) • [Requirements](#requirements) • [Quick Start](#quick-start) • [Usage](#usage) • [How It Works](#how-it-works) • [Privacy](#privacy) • [Development](#development)
+
 </div>
 
-_Search, view, and download iOS apps from the App Store in Raycast._
-
-![screenshot-1](./metadata/screenshot-1.png){ width="700" }
-![screenshot-2](./metadata/screenshot-2.png){ width="700" }
-![screenshot-3](./metadata/screenshot-3.png){ width="700" }
-![screenshot-4](./metadata/screenshot-4.png){ width="700" }
-![screenshot-5](./metadata/screenshot-5.png){ width="700" }
-![screenshot-6](./metadata/screenshot-6.png){ width="700" }
+---
 
 ## Features
 
-- **Search**: Quickly search for iOS apps by name, developer, bundle ID, App Store URL, or numeric app ID — pasting a URL or ID finds brand-new apps that Apple's search index has not picked up yet
-- **Recent Searches**: Automatically tracks your search history for quick access to previous queries
-- **Rich App Details**: View comprehensive app information including ratings, screenshots, and metadata
-- **Developer's Apps**: Browse every app by a developer in a list inside Raycast, without opening the App Store
-- **Download**: Download IPA files directly to your computer
-- **Favorites**: Save your favorite apps for quick access and export them to Markdown or CSV
-- **Download History**: Track all your app downloads with sorting, filtering, and download count tracking
-- **Copy Actions**: Easily copy app metadata like bundle ID, version, and App Store URLs
-- **Raycast AI Tools**: Use AI commands to search, get details, and download iOS apps
-- **Logout**: Securely revoke ipatool authentication and clear stored credentials
+- **Search by anything that identifies an app** — name, developer, bundle ID, App Store URL, or numeric app ID. Pasting a URL or ID finds brand-new apps that Apple's term index has not picked up yet
+- **Rich app details** — ratings, screenshots, descriptions, release and version history, developer info
+- **Developer's catalogue** — browse every app by one developer inside Raycast, without opening the App Store
+- **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`
+- **Full-resolution screenshots** — extracted per platform (iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro) and filtered by your preferences
+- **Favorites** — star apps for quick access; export the list to Markdown or CSV
+- **Download history** — every download tracked with a count and timestamp, sortable and filterable, capped at the 100 most recent
+- **Recent searches** — queries saved automatically and re-runnable in one keystroke
+- **Five Raycast AI tools** — search, details, current version, download, and screenshot download, all callable as `@ios-apps`
+
+---
 
 ## Requirements
 
-### Homebrew
-
-This extension requires [Homebrew](https://brew.sh), a package manager for macOS. You can install it via the following command:
+- [Raycast](https://www.raycast.com/) installed
+- macOS — `ipatool` and the Keychain integration are macOS-only
+- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.3.1 or greater** (2.3.2 recommended), for downloads
 
 ```bash
+# Homebrew, if you don't have it
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
 
-### ipatool
-
-Once you have Homebrew installed, install [ipatool](https://github.com/majd/ipatool) (version 2.3.1 or greater; 2.3.2 recommended), a command-line tool for interacting with Apple's App Store using this command:
-
-```bash
-brew uninstall ipatool  # Uninstall if already installed
+# ipatool — uninstall first if you already have an older build
+brew uninstall ipatool
 brew install ipatool
 ```
 
-The extension automatically detects `ipatool` installation in common locations:
+**Searching and viewing details need neither `ipatool` nor an Apple ID.** Only downloading does.
 
-- **Apple Silicon Macs**: `/opt/homebrew/bin/ipatool` (default Homebrew path)
-- **Intel Macs**: `/usr/local/bin/ipatool` (default Homebrew path)
-- **System installation**: `/usr/bin/ipatool`
-- **User installations**: `~/.local/bin/ipatool`, `~/bin/ipatool`
-- **PATH lookup**: Any location in your system PATH
+`ipatool` is auto-detected in the usual places — `/opt/homebrew/bin` (Apple Silicon), `/usr/local/bin` (Intel), `/usr/bin`, `~/.local/bin`, `~/bin`, and anything on your `PATH`. Set **ipatool Path** in preferences if yours lives elsewhere.
 
-If your installation is in a different location, you can specify the custom path in the extension preferences.
+---
+
+## Quick Start
+
+1. Open Raycast and search for **"Search iOS Apps"**
+2. Type an app name — or paste an App Store URL, bundle ID, or numeric app ID
+3. Select an app to see full details, screenshots, and version history
+4. To download, sign in with your Apple ID when prompted — the login and two-factor forms both run inside Raycast
+
+![Searching the App Store from Raycast, showing version, price, release date, and rating for each result](media/ios-apps-search.png)
+
+---
+
+## Usage
+
+### Commands
+
+| Command | Mode | Description |
+| --- | --- | --- |
+| Search iOS Apps | `view` | Search the App Store; recent searches are tracked automatically |
+| View Favorites | `view` | Manage starred apps and export them to Markdown or CSV |
+| Download History | `view` | Browse past downloads with sorting, filtering, and re-download |
+| Logout | `no-view` | Revoke `ipatool` auth and clear stored credentials |
+
+### Raycast AI Tools
+
+| Tool | Example |
+| --- | --- |
+| Search iOS Apps | `Search @ios-apps Spotify` |
+| Get iOS App Details | `Get @ios-apps details for "Airbnb"` |
+| Get iOS App Version | `Get @ios-apps What's the latest version of Airbnb?` |
+| Download iOS App | `Download @ios-apps "Instagram"` |
+| Download iOS App Screenshots | `Download @ios-apps screenshots for "Instagram"` |
+
+Search accepts an optional `limit` (default 10, max 20). **The AI tools search via `ipatool`, so they require authentication** — unlike the Search command, which uses the iTunes API and does not.
+
+### Favorites, History, and Recent Searches
+
+- **Favorites** — star from search results or detail view; stored via Raycast's storage API; export to Markdown or CSV
+- **Download History** — automatic per-download tracking with a counter; sort by recency, download count, or name; search by name, developer, or bundle ID; re-download or remove entries; keeps the last 100
+- **Recent Searches** — saved automatically, surfaced when the search command opens, individually removable
+
+### Preferences
+
+| Preference | Values | Default |
+| --- | --- | --- |
+| Download Path | directory | `~/Downloads` |
+| Homebrew Path | path | `/opt/homebrew/bin/brew` |
+| ipatool Path | path | `/opt/homebrew/bin/ipatool` |
+| Include Screenshots From | iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro | iPhone + iPad |
+| Download Timeout | seconds (min 30) | `90` |
+| Max Concurrent Downloads | 1–10 | `5` |
+| Max Stall Timeout | milliseconds | `30000` |
+| Cleanup Temporary Files | on / off | on |
+| Integrity Verification | Basic, Checksum, Off | Basic |
+| Verbose Logging | on / off | off |
+
+**On concurrency:** higher is faster but heavier; 3–7 suits most machines. **On platform filters:** screenshots are always *extracted* for every platform Apple publishes — the preference controls only which are *downloaded and saved*, so disabling one saves time and disk, not fidelity.
+
+---
 
 ## How It Works
 
-### App Search and Metadata
+### Two sources, two jobs
 
-The extension uses a dual-source approach to provide comprehensive app information:
+1. **iTunes API** — powers the Search command and all metadata: high-resolution icons and screenshots, ratings, descriptions, release dates, version history, developer info. No Apple ID required.
+2. **`ipatool`** — handles App Store authentication and IPA downloads, and backs the search used by the AI tools.
 
-1. **iTunes API**: Powers the Search command and supplies the metadata — high-resolution icons and screenshots, ratings and reviews, descriptions, release dates and version history, and developer information. No Apple ID is required to search.
-2. **ipatool**: Handles App Store authentication and IPA downloads, and backs the search used by the Raycast AI tools (which does require authentication).
+Apple's term-search index lags the App Store by hours to days, so a just-released app can be missing from a name search while still resolving by ID. Pasting an App Store URL (`https://apps.apple.com/us/app/.../id6761221765`), a bare numeric ID, or a bundle ID routes to Apple's exact-lookup endpoint instead. A bundle ID or bare number that finds nothing falls back to a normal name search.
 
-Search accepts more than a name. Because Apple's term-search index lags the App Store by hours to days, a just-released app can be missing from a name search while still resolving by ID — so pasting an App Store URL (`https://apps.apple.com/us/app/.../id6761221765`), a bare numeric app ID, or a bundle ID routes to Apple's exact lookup endpoint instead. A bundle ID or bare number that finds nothing falls back to a normal name search.
+### Screenshot extraction
 
-### Screenshot Extraction with Shoebox JSON
+Full-resolution screenshots are parsed out of the "shoebox" JSON Apple embeds in App Store web pages — `<script type="fastboot/shoebox" id="shoebox-media-api-cache-apps">`. The payload is nested JSON-inside-JSON, so extraction parses the outer object, then the inner strings, then walks to:
 
-The extension uses a sophisticated approach to extract high-resolution screenshots from the App Store by parsing Apple's "shoebox" JSON data embedded in App Store web pages.
+```
+d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType
+```
 
-#### How Shoebox Parsing Works
+Apple's internal device identifiers are mapped to platforms (`iphone_6_5`/`iphone_d74` → iPhone, `ipadpro_2018`/`ipad_pro_129` → iPad, `appletv` → Apple TV, `applewatch_2022` → Apple Watch, `applevision`/`visionpro` → Vision Pro, `mac`/`macbook` → Mac), and URLs are rewritten to the highest available resolution.
 
-1. **JSON Extraction**: The extension searches for `<script type="fastboot/shoebox" id="shoebox-media-api-cache-apps">` elements in the App Store HTML
-2. **Multi-layer JSON Parsing**: The shoebox contains nested JSON structures that require multi-step parsing:
-   - Outer JSON object with app data keys
-   - Inner JSON strings that need separate parsing
-   - Deep path traversal to find screenshot data
-3. **Path Navigation**: Screenshots are located at the path:
+> ⚠️ **This is scraping, and Apple can change it without notice.** The parser checks both platform-specific and fallback paths, isolates JSON errors so one bad branch doesn't abort the run, returns partial results rather than nothing, and logs enough to diagnose a structure change. It is built to degrade rather than break — but a future App Store redesign could still affect screenshot extraction.
 
-   ```javascript
-   d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType
-   ```
-
-4. **Device Type Mapping**: The extension maps Apple's internal device identifiers to platform types:
-   - `iphone_6_5`, `iphone_d74` → iPhone
-   - `ipadpro_2018`, `ipad_pro_129` → iPad
-   - `appletv`, `apple_tv` → AppleTV
-   - `applewatch_2022`, `apple_watch` → AppleWatch
-   - `applevision`, `visionpro` → VisionPro
-   - `mac`, `macbook` → Mac
-5. **URL Enhancement**: Screenshot URLs are automatically transformed to the highest resolution format
-
-#### Graceful Fallback Behavior
-
-The shoebox parsing helper is designed to handle changes in Apple's App Store structure gracefully:
-
-- **Multiple Parsing Paths**: Checks both platform-specific and fallback attribute paths
-- **Error Isolation**: JSON parsing errors don't crash the entire process
-- **Partial Results**: Returns any successfully parsed screenshots even if some fail
-- **Comprehensive Logging**: Detailed logging helps diagnose parsing issues
-- **Fallback Values**: Uses sensible defaults when structure changes
-
-#### Future Resilience
-
-⚠️ **Important Note**: Apple may change the App Store's internal structure at any time. The extension's shoebox parsing logic is designed to be resilient to these changes, but future App Store updates could potentially affect screenshot extraction. The parsing logic includes multiple fallback mechanisms and extensive error handling to minimize disruption.
-
-### Apple ID Authentication
-
-This extension requires you to authenticate with your Apple ID in order to download apps from the App Store. Searching and viewing app details work without signing in. The authentication process is handled securely through `ipatool`:
-
-- Your Apple ID credentials are never stored within the Raycast extension
-- Authentication is handled directly by ipatool, which securely stores credentials in your system's keychain
-- Authentication is completed directly within the Raycast UI, with dedicated forms for both standard login and two-factor authentication
-
-## Commands
-
-The extension provides the following commands:
-
-- **Search iOS Apps**: Search for iOS apps on the App Store with automatic recent search tracking
-- **View Favorites**: Access and manage your favorite apps with export capabilities
-- **Download History**: View your complete download history with sorting and filtering options
-- **Logout**: Revoke ipatool authentication and clear stored credentials
-
-## Configuration
-
-### Path Settings
-
-- **Download Path**: Directory where downloaded IPA files and screenshots are saved (default: ~/Downloads)
-- **Homebrew Path**: Path to the Homebrew executable (default: /opt/homebrew/bin/brew)
-- **ipatool Path**: Path to the ipatool executable (default: /opt/homebrew/bin/ipatool)
-
-### Concurrency Settings
-
-The extension allows you to control download performance through configurable concurrency settings:
-
-- **Max Concurrent Downloads**: Controls how many screenshot downloads can happen simultaneously (default: 5, range: 1-10)
-  - Higher values = faster downloads but more system resources
-  - Lower values = slower downloads but lighter system load
-  - Recommended: 3-7 for most systems
-
-### Timeout Settings
-
-- **Download Timeout**: Sets the maximum time to wait for individual screenshot downloads (default: 90 seconds, minimum: 30 seconds)
-  - Longer timeouts help with slow connections or large images
-  - Shorter timeouts prevent hanging on failed downloads
-  - The extension automatically retries failed downloads
-- **Max Stall Timeout**: Timeout when no progress is made during downloads (default: 30000 milliseconds)
-
-### File Management
-
-- **Cleanup Temporary Files**: Automatically clean up temporary files when the extension exits (default: enabled)
-- **Integrity Verification**: Level of file integrity verification to perform
-  - **Basic**: Quick file size and existence checks (default)
-  - **Checksum**: Full checksum verification for downloaded files
-  - **Off**: No integrity verification
-
-### Debugging
-
-- **Verbose Logging**: Enable detailed console logging for debugging purposes (default: disabled)
-
-### Platform Preferences
-
-You can control which device platforms to include when downloading screenshots:
-
-- **iPhone**: Enabled by default - includes iPhone screenshots in all sizes
-- **iPad**: Enabled by default - includes iPad screenshots and iPad Pro variants
-- **Mac**: Disabled by default - includes macOS app screenshots
-- **Apple TV**: Disabled by default - includes tvOS app screenshots
-- **Apple Watch**: Disabled by default - includes watchOS app screenshots
-- **Vision Pro**: Disabled by default - includes visionOS app screenshots
-
-**How Platform Preferences Affect Scraping**:
-
-- Screenshots are always extracted from the App Store for all available platforms
-- Platform preferences only control which screenshots are actually downloaded and saved
-- Disabled platforms are skipped during download, saving time and storage space
-- The scraping process provides detailed feedback about available vs. downloaded screenshots per platform
-- Platform-specific progress tracking shows real-time download status for each enabled platform
-
-## Favorites
-
-The Favorites feature allows you to save apps for quick access:
-
-- **Add to Favorites**: Star any app from search results or app details
-- **Quick Access**: View all your favorite apps in one place
-- **Export Options**: Export your favorites list to Markdown or CSV format
-- **Persistent Storage**: Favorites are stored securely using Raycast's storage API
-
-## Download History
-
-Track all your app downloads with comprehensive history management:
-
-- **Automatic Tracking**: Every download is automatically recorded with timestamp and count
-- **Download Counter**: See how many times you've downloaded each app
-- **Sorting Options**: Sort by most recent, oldest, most downloaded, least downloaded, or name
-- **Search & Filter**: Quickly find apps in your history by name, developer, or bundle ID
-- **Quick Actions**: Re-download apps, add to favorites, or remove individual history items
-- **History Limit**: Stores up to 100 most recent downloads
-
-## Recent Searches
-
-The extension automatically tracks your search history:
-
-- **Automatic Tracking**: Search queries are saved automatically
-- **Quick Access**: Recent searches appear when you open the search command
-- **One-Click Search**: Click any recent search to instantly re-run that query
-- **History Management**: Remove individual searches or clear all history
-
-## About App Downloads and Screenshots
-
-Downloaded apps are saved as IPA files to your specified downloads directory (defaults to ~/Downloads). The files are automatically renamed to a user-friendly format: `{App Name} {Version}.ipa`.
-
-Screenshots are downloaded at the highest resolution and saved to the downloads directory with platform-specific organization.
+---
 
 ## Privacy
 
-This extension:
+This extension does not collect or transmit personal data. It talks only to Apple, via the `ipatool` CLI and the iTunes API.
 
-- Does not collect or transmit any personal data
-- Only communicates with Apple's servers via the `ipatool` CLI and iTunes API
-- Stores no credentials within the extension itself
+**The extension does store some credentials — here is exactly what, and where:**
 
-### Authentication Features
+| What | Where | Notes |
+|---|---|---|
+| Apple ID | Raycast `LocalStorage`, key `appleId` | Not encrypted. It is an identifier, not a secret. |
+| Password | Raycast Keychain API, service `ios-apps-apple-password` | Only if that API is available; otherwise the extension logs a warning and does not store it. |
+| Two-factor codes | Nowhere | Never persisted. |
+| `ipatool`'s session | System Keychain, item `ipatool-auth.service` | Created and owned by `ipatool` — this extension neither creates nor modifies it. |
 
-- Two-factor authentication is fully supported
-- The extension automatically detects if you're already authenticated
-- In-UI authentication forms keep the whole flow inside Raycast
-  - Dedicated login form for entering Apple ID credentials
-  - Two-factor authentication form with automatic code detection
-  - Real-time validation and error feedback
-  - Secure credential handling with no storage in the extension
+Nothing is collected or transmitted anywhere; the only network destination is Apple. The **Logout** command attempts `ipatool auth revoke`, then clears the stored Apple ID and deletes the password entry — and clears them even if the revoke fails.
 
-When you first attempt to download an app, you'll be prompted to authenticate if needed. After successful authentication, you shouldn't have to re-authenticate for future operations.
+Two-factor is fully supported, and both the login and 2FA forms run inside Raycast. You are prompted only when you first download something; after that, re-authentication should be rare.
 
-### Reducing Keychain Access authentication
+### Reducing repeated Keychain prompts
 
-The Keychain item that controls `ipatool`'s session is created by `ipatool` itself (usually named `ipatool-auth.service`). macOS may prompt the first time Raycast (or `ipatool`) accesses this item. You can reduce or eliminate repeated prompts by adjusting the item's Access Control:
+The Keychain item governing `ipatool`'s session is created and owned by `ipatool` (usually `ipatool-auth.service`) — **this extension neither creates nor modifies it.** macOS may prompt when Raycast or `ipatool` accesses it. To reduce prompts:
 
-1. Open Keychain Access and search for `ipatool-auth.service`.
-2. Double‑click the item → open the "Access Control" tab.
-3. Choose one of the following:
-   - Recommended: Keep "Confirm before allowing access" but add specific apps to "Always allow access by these applications":
-     - Click the `+` button and add the actual `ipatool` binary.
-       - On Apple Silicon (Homebrew): `/opt/homebrew/bin/ipatool` → then right‑click → "Show Original" to add the real binary under `/opt/homebrew/Cellar/ipatool/<version>/bin/ipatool` (avoid adding just the symlink).
-       - On Intel (Homebrew): `/usr/local/bin/ipatool` → similarly add the original under `/usr/local/Cellar/ipatool/<version>/bin/ipatool`.
-     - Optionally add `Raycast.app` if the flow originates in Raycast and you still see prompts.
-   - Less secure: Select "Allow all applications to access this item" (not recommended).
-4. Click "Save Changes".
+1. Open **Keychain Access** and search for `ipatool-auth.service`
+2. Double-click the item → **Access Control** tab
+3. Keep *Confirm before allowing access*, and add the real `ipatool` binary under *Always allow access by these applications*:
+   - Apple Silicon: `/opt/homebrew/bin/ipatool` → right-click → **Show Original** and add the binary under `/opt/homebrew/Cellar/ipatool/<version>/bin/ipatool` (add the original, not the symlink)
+   - Intel: the equivalent under `/usr/local/Cellar/ipatool/<version>/bin/ipatool`
+   - Add `Raycast.app` too if prompts persist
+4. **Save Changes**
 
-Notes:
+*Allow all applications to access this item* also works and is **not recommended.**
 
-- The extension does not create or modify `ipatool-auth.service`; it is owned by `ipatool`.
-- The extension may store your Apple ID password in a separate Keychain entry named `ios-apps-apple-password` (service), which is independent of `ipatool`'s item and does not change its ACL.
-- There is no programmatic way in this extension to set the Keychain ACL default; macOS manages it for security.
+The extension may store your Apple ID password in a separate Keychain entry, `ios-apps-apple-password`. It is independent of `ipatool`'s item and does not alter its ACL. There is no programmatic way to set a Keychain ACL — macOS owns that, by design.
 
-## About Raycast AI Tools
-
-This extension provides several AI tools that can be used with Raycast AI to enhance your workflow:
-
-### Search iOS Apps
-
-Search for iOS apps on the App Store by name or keyword.
-
-```bash
-Search @ios-apps Spotify
-```
-
-Options:
-
-- `query`: The search query for finding iOS apps (required)
-- `limit`: Maximum number of results to return (optional, default: 10, max: 20)
-
-### Get iOS App Details
-
-Get detailed information about an iOS app by name or search term.
-
-```bash
-Get @ios-apps details for "Airbnb"
-```
-
-### Get iOS App Version
-
-Get the current version of an iOS app by name or search term.
-
-```bash
-Get @ios-apps What's the latest version of Airbnb?
-```
-
-Options:
-
-- `query`: The name or search term for the iOS app (required)
-
-### Download iOS App
-
-Download an iOS app directly to your computer.
-
-```bash
-Download @ios-apps "Instagram"
-```
-
-Options:
-
-- `query`: The name or search term for the iOS app (required)
-
-The download tool will search for the app, retrieve its details, and download the IPA file to your specified download directory.
-
-### Download iOS App Screenshots
-
-Download an app's App Store screenshots at full resolution.
-
-```bash
-Download @ios-apps screenshots for "Instagram"
-```
-
-Options:
-
-- `query`: The name or search term for the iOS app (required)
-
-Screenshots are saved to your download directory, organized by platform according to your platform preferences.
-
-### Logout Command
-
-The Logout command provides a secure way to manage your authentication:
-
-- **Revoke Authentication**: Removes ipatool authentication from your system keychain
-- **Clear Credentials**: Clears any stored Apple ID credentials from the extension
-- **Fresh Start**: Useful when switching Apple IDs or troubleshooting authentication issues
-
-### App Downloads
-
-Downloaded apps are saved as IPA files to your specified downloads directory (defaults to ~/Downloads). The files are automatically renamed to a user-friendly format: `{App Name} {Version}.ipa`.
+---
 
 ## Troubleshooting
 
-### Common Issues
+| Symptom | Cause and fix |
+| --- | --- |
+| Search returns nothing for an app you know exists | The app is too new for Apple's term index. Paste its App Store URL or numeric app ID instead — that path uses exact lookup |
+| Authentication failures | Run `ipatool auth login` directly in a terminal to see the real error |
+| Download errors | Check free disk space and write permission on your download directory |
+| AI tool search fails while the Search command works | The AI tools go through `ipatool`, which must be installed, on the configured path, **and authenticated**. The Search command needs none of that |
 
-- **Authentication Failures**: If you're having trouble authenticating, try running `ipatool auth login` directly in your terminal
-- **Download Errors**: Make sure you have sufficient disk space and permissions to write to your downloads directory
-- **Search Not Working**: The Search command uses Apple's iTunes API and needs no ipatool or Apple ID — if it returns nothing for an app you know exists, the app is likely too new to be indexed, so paste its App Store URL or numeric app ID instead
-- **AI Tool Search Failing**: The AI tools search via ipatool, so verify that ipatool is correctly installed, accessible from the path specified in preferences, and authenticated
+---
+
+## Development
+
+### Project Structure
+
+```
+raycast-ios-apps/
+├── src/
+│   ├── search.tsx            # Search command
+│   ├── favorites.tsx         # Favorites command
+│   ├── download-history.tsx  # History command
+│   ├── logout.ts             # Logout (no-view)
+│   ├── ipatool.ts            # ipatool CLI wrapper — auth, download
+│   ├── tools/                # Five Raycast AI tools
+│   ├── hooks/                # Search, download, favorites, history state
+│   ├── components/           # List items, detail view, action panels, auth forms
+│   └── utils/                # App Store scraper, auth, progress
+├── assets/                   # Extension icon
+├── metadata/                 # Store screenshots
+└── package.json
+```
+
+### Scripts
+
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Start in development mode with hot reload |
+| `npm run build` | Build for production |
+| `npm run lint` | Run Raycast ESLint config |
+| `npm run fix-lint` | Auto-fix lint issues |
+| `npm run publish` | Publish to the Raycast Store |
+
+### Clone & Run
+
+```sh
+git clone https://github.com/chrismessina/raycast-ios-apps.git
+cd raycast-ios-apps
+npm install
+npm run dev
+```
+
+---
+
+## Tech Stack
+
+| Package | Role |
+| --- | --- |
+| `@raycast/api` | Raycast extension primitives (List, Detail, ActionPanel, Form) |
+| `@raycast/utils` | Higher-level Raycast utilities |
+| `@chrismessina/raycast-logger` | Structured logging for the App Store and `ipatool` request paths |
+| `p-limit` | Bounds concurrent screenshot downloads to the configured maximum |
+| `lodash` | Collection and string helpers |
+
+---
 
 ## Credits
 
-- [ipatool](https://github.com/majd/ipatool) by Majd Alfhaily
+- [`ipatool`](https://github.com/majd/ipatool) by Majd Alfhaily
 - [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/index.html) by Apple
-- [Windsurf](https://windsurf.com/)
-- [Warp](https://warp.dev)
+
+---
+
+MIT © [Chris Messina](https://github.com/chrismessina)
