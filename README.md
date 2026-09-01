@@ -66,25 +66,25 @@ brew install ipatool
 
 ### Commands
 
-| Command | Mode | Description |
-| --- | --- | --- |
-| Search iOS Apps | `view` | Search the App Store; recent searches are tracked automatically |
-| View Purchased Apps | `view` | Everything this Apple ID owns, paged as you scroll and sortable by purchase date |
-| View Favorites | `view` | Manage starred apps and export them to Markdown or CSV |
-| Download History | `view` | Browse past downloads with sorting, filtering, and re-download |
-| Logout | `no-view` | Revoke `ipatool` auth and clear stored credentials |
+| Command             | Mode      | Description                                                                      |
+| ------------------- | --------- | -------------------------------------------------------------------------------- |
+| Search iOS Apps     | `view`    | Search the App Store; recent searches are tracked automatically                  |
+| View Purchased Apps | `view`    | Everything this Apple ID owns, paged as you scroll and sortable by purchase date |
+| View Favorites      | `view`    | Manage starred apps and export them to Markdown or CSV                           |
+| Download History    | `view`    | Browse past downloads with sorting, filtering, and re-download                   |
+| Logout              | `no-view` | Revoke `ipatool` auth and clear stored credentials                               |
 
 **On View Purchased Apps:** `ipatool list-purchases` costs roughly six seconds per request regardless of page size — that is per-request overhead on Apple's side, not per-app — so the first page takes a moment and later visits open from cache. Pages load as you scroll. Sorting by **purchase date** is done by Apple and covers the whole library; sorting by **name** can only reorder the rows already loaded, and the section header says how many that is. No price is shown: the purchase records report `0` for every app, so what you actually paid is not recoverable.
 
 ### Raycast AI Tools
 
-| Tool | Example |
-| --- | --- |
-| Search iOS Apps | `Search @ios-apps Spotify` |
-| Get iOS App Details | `Get @ios-apps details for "Airbnb"` |
-| Get iOS App Version | `Get @ios-apps What's the latest version of Airbnb?` |
-| Download iOS App | `Download @ios-apps "Instagram"` |
-| Download iOS App Screenshots | `Download @ios-apps screenshots for "Instagram"` |
+| Tool                         | Example                                              |
+| ---------------------------- | ---------------------------------------------------- |
+| Search iOS Apps              | `Search @ios-apps Spotify`                           |
+| Get iOS App Details          | `Get @ios-apps details for "Airbnb"`                 |
+| Get iOS App Version          | `Get @ios-apps What's the latest version of Airbnb?` |
+| Download iOS App             | `Download @ios-apps "Instagram"`                     |
+| Download iOS App Screenshots | `Download @ios-apps screenshots for "Instagram"`     |
 
 Search accepts an optional `limit` (default 10, max 20). **The AI tools search via `ipatool`, so they require authentication** — unlike the Search command, which uses the iTunes API and does not.
 
@@ -96,20 +96,20 @@ Search accepts an optional `limit` (default 10, max 20). **The AI tools search v
 
 ### Preferences
 
-| Preference | Values | Default |
-| --- | --- | --- |
-| Download Path | directory | `~/Downloads` |
-| Homebrew Path | path | `/opt/homebrew/bin/brew` |
-| ipatool Path | path | `/opt/homebrew/bin/ipatool` |
-| Include Screenshots From | iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro | iPhone + iPad |
-| Download Timeout | seconds (min 30) | `90` |
-| Max Concurrent Downloads | 1–10 | `5` |
-| Max Stall Timeout | milliseconds | `30000` |
-| Cleanup Temporary Files | on / off | on |
-| Integrity Verification | Basic, Checksum, Off | Basic |
-| Verbose Logging | on / off | off |
+| Preference               | Values                                               | Default                     |
+| ------------------------ | ---------------------------------------------------- | --------------------------- |
+| Download Path            | directory                                            | `~/Downloads`               |
+| Homebrew Path            | path                                                 | `/opt/homebrew/bin/brew`    |
+| ipatool Path             | path                                                 | `/opt/homebrew/bin/ipatool` |
+| Include Screenshots From | iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro | iPhone + iPad               |
+| Download Timeout         | seconds (min 30)                                     | `90`                        |
+| Max Concurrent Downloads | 1–10                                                 | `5`                         |
+| Max Stall Timeout        | milliseconds                                         | `30000`                     |
+| Cleanup Temporary Files  | on / off                                             | on                          |
+| Integrity Verification   | Basic, Checksum, Off                                 | Basic                       |
+| Verbose Logging          | on / off                                             | off                         |
 
-**On concurrency:** higher is faster but heavier; 3–7 suits most machines. **On platform filters:** screenshots are always *extracted* for every platform Apple publishes — the preference controls only which are *downloaded and saved*, so disabling one saves time and disk, not fidelity.
+**On concurrency:** higher is faster but heavier; 3–7 suits most machines. **On platform filters:** screenshots are always _extracted_ for every platform Apple publishes — the preference controls only which are _downloaded and saved_, so disabling one saves time and disk, not fidelity.
 
 ---
 
@@ -126,7 +126,7 @@ Apple's term-search index lags the App Store by hours to days, so a just-release
 
 Full-resolution screenshots are parsed out of the "shoebox" JSON Apple embeds in App Store web pages — `<script type="fastboot/shoebox" id="shoebox-media-api-cache-apps">`. The payload is nested JSON-inside-JSON, so extraction parses the outer object, then the inner strings, then walks to:
 
-```
+```typescript
 d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType
 ```
 
@@ -142,12 +142,12 @@ This extension does not collect or transmit personal data. It talks only to Appl
 
 **The extension does store some credentials — here is exactly what, and where:**
 
-| What | Where | Notes |
-|---|---|---|
-| Apple ID | Raycast `LocalStorage`, key `appleId` | Not encrypted. It is an identifier, not a secret. |
-| Password | Raycast Keychain API, service `ios-apps-apple-password` | Only if that API is available; otherwise the extension logs a warning and does not store it. |
-| Two-factor codes | Nowhere | Never persisted. |
-| `ipatool`'s session | System Keychain, item `ipatool-auth.service` | Created and owned by `ipatool` — this extension neither creates nor modifies it. |
+| What                | Where                                                   | Notes                                                                                        |
+| ------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Apple ID            | Raycast `LocalStorage`, key `appleId`                   | Not encrypted. It is an identifier, not a secret.                                            |
+| Password            | Raycast Keychain API, service `ios-apps-apple-password` | Only if that API is available; otherwise the extension logs a warning and does not store it. |
+| Two-factor codes    | Nowhere                                                 | Never persisted.                                                                             |
+| `ipatool`'s session | System Keychain, item `ipatool-auth.service`            | Created and owned by `ipatool` — this extension neither creates nor modifies it.             |
 
 Nothing is collected or transmitted anywhere; the only network destination is Apple. The **Logout** command attempts `ipatool auth revoke`, then clears the stored Apple ID and deletes the password entry — and clears them even if the revoke fails.
 
@@ -159,13 +159,13 @@ The Keychain item governing `ipatool`'s session is created and owned by `ipatool
 
 1. Open **Keychain Access** and search for `ipatool-auth.service`
 2. Double-click the item → **Access Control** tab
-3. Keep *Confirm before allowing access*, and add the real `ipatool` binary under *Always allow access by these applications*:
+3. Keep _Confirm before allowing access_, and add the real `ipatool` binary under _Always allow access by these applications_:
    - Apple Silicon: `/opt/homebrew/bin/ipatool` → right-click → **Show Original** and add the binary under `/opt/homebrew/Cellar/ipatool/<version>/bin/ipatool` (add the original, not the symlink)
    - Intel: the equivalent under `/usr/local/Cellar/ipatool/<version>/bin/ipatool`
    - Add `Raycast.app` too if prompts persist
 4. **Save Changes**
 
-*Allow all applications to access this item* also works and is **not recommended.**
+_Allow all applications to access this item_ also works and is **not recommended.**
 
 The extension may store your Apple ID password in a separate Keychain entry, `ios-apps-apple-password`. It is independent of `ipatool`'s item and does not alter its ACL. There is no programmatic way to set a Keychain ACL — macOS owns that, by design.
 
@@ -173,11 +173,11 @@ The extension may store your Apple ID password in a separate Keychain entry, `io
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
-| --- | --- |
-| Search returns nothing for an app you know exists | The app is too new for Apple's term index. Paste its App Store URL or numeric app ID instead — that path uses exact lookup |
-| Authentication failures | Run `ipatool auth login` directly in a terminal to see the real error |
-| Download errors | Check free disk space and write permission on your download directory |
+| Symptom                                             | Cause and fix                                                                                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Search returns nothing for an app you know exists   | The app is too new for Apple's term index. Paste its App Store URL or numeric app ID instead — that path uses exact lookup                       |
+| Authentication failures                             | Run `ipatool auth login` directly in a terminal to see the real error                                                                            |
+| Download errors                                     | Check free disk space and write permission on your download directory                                                                            |
 | AI tool search fails while the Search command works | The AI tools go through `ipatool`, which must be installed, on the configured path, **and authenticated**. The Search command needs none of that |
 
 ---
@@ -186,7 +186,7 @@ The extension may store your Apple ID password in a separate Keychain entry, `io
 
 ### Project Structure
 
-```
+```bash
 raycast-ios-apps/
 ├── src/
 │   ├── search.tsx            # Search command
@@ -205,17 +205,17 @@ raycast-ios-apps/
 
 ### Scripts
 
-| Script | Description |
-| --- | --- |
-| `npm run dev` | Start in development mode with hot reload |
-| `npm run build` | Build for production |
-| `npm run lint` | Run Raycast ESLint config |
-| `npm run fix-lint` | Auto-fix lint issues |
-| `npm run publish` | Publish to the Raycast Store |
+| Script             | Description                               |
+| ------------------ | ----------------------------------------- |
+| `npm run dev`      | Start in development mode with hot reload |
+| `npm run build`    | Build for production                      |
+| `npm run lint`     | Run Raycast ESLint config                 |
+| `npm run fix-lint` | Auto-fix lint issues                      |
+| `npm run publish`  | Publish to the Raycast Store              |
 
 ### Clone & Run
 
-```sh
+```bash
 git clone https://github.com/chrismessina/raycast-ios-apps.git
 cd raycast-ios-apps
 npm install
@@ -226,13 +226,13 @@ npm run dev
 
 ## Tech Stack
 
-| Package | Role |
-| --- | --- |
-| `@raycast/api` | Raycast extension primitives (List, Detail, ActionPanel, Form) |
-| `@raycast/utils` | Higher-level Raycast utilities |
+| Package                        | Role                                                             |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `@raycast/api`                 | Raycast extension primitives (List, Detail, ActionPanel, Form)   |
+| `@raycast/utils`               | Higher-level Raycast utilities                                   |
 | `@chrismessina/raycast-logger` | Structured logging for the App Store and `ipatool` request paths |
-| `p-limit` | Bounds concurrent screenshot downloads to the configured maximum |
-| `lodash` | Collection and string helpers |
+| `p-limit`                      | Bounds concurrent screenshot downloads to the configured maximum |
+| `lodash`                       | Collection and string helpers                                    |
 
 ---
 
