@@ -1,6 +1,7 @@
 export * from "./use-app-search";
 export * from "./use-app-download";
 export * from "./use-app-details";
+export * from "./use-purchased-apps";
 export * from "./use-clipboard";
 export * from "./use-export-favorites";
 export * from "./use-recent-searches";

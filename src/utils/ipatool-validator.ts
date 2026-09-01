@@ -8,10 +8,12 @@ import { IPATOOL_PATH, validateExecutablePath } from "./paths";
 
 // Constants
 const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";
-// Minimum supported ipatool version. 2.3.1 is the release that fixed App Store
-// login after Apple moved the authenticate endpoint (majd/ipatool#507); older
-// builds can no longer authenticate. Newer builds are accepted as-is.
-const MINIMUM_IPATOOL_VERSION = "2.3.1";
+// Minimum supported ipatool version. 2.4.0 replaced App Store auth with
+// SAP-signed requests (majd/ipatool#525), closing the HTTP 403 "empty or
+// non-plist body" commerce gate (majd/ipatool#522, #523); 2.5.0 adds
+// list-purchases, visionOS search/download, and transient-auth retry. Older
+// builds hit the gate on every download. Newer builds are accepted as-is.
+const MINIMUM_IPATOOL_VERSION = "2.5.0";
 const DEFAULT_COMMAND_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_VALIDATION_TIMEOUT = 5000; // 5 seconds
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB max output size

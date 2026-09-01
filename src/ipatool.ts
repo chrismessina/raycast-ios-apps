@@ -6,7 +6,7 @@ import { promisify } from "util";
 import { logger } from "@chrismessina/raycast-logger";
 import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
 import { getConfig } from "./config";
-import { IpaToolSearchApp, IpaToolSearchResponse } from "./types";
+import { IpaToolPurchasesResponse, IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import {
   AppleAuthGateError,
   BuiltInAppError,
@@ -728,6 +728,70 @@ export async function searchApps(query: string, limit = 20): Promise<IpaToolSear
     await handleAppSearchError(error instanceof Error ? error : new Error(String(error)), query, "searchApps");
     return [];
   }
+}
+
+/**
+ * Largest page `ipatool list-purchases` will serve. `-l 101` is rejected
+ * outright ("max results must not exceed 100"), so this is a hard ceiling,
+ * not a tuning knob.
+ */
+export const PURCHASES_PAGE_SIZE = 100;
+
+/**
+ * One page of the signed-in Apple ID's purchase history.
+ *
+ * `ipatool list-purchases` pages are **1-indexed** and ordered purchase-date
+ * descending; the order is stable and pages do not overlap. There is no
+ * `--platform` flag, and the records carry no icon, rating, or genre — callers
+ * enrich via iTunes.
+ *
+ * Auth errors (`NeedsLoginError`, `Needs2FAError`, `AppleAuthGateError`) are
+ * left to propagate so the caller can push the login flow.
+ *
+ * @param page 1-indexed page number
+ * @param limit Records per page, capped at {@link PURCHASES_PAGE_SIZE}
+ * @returns The page plus the account-wide `totalCount`
+ */
+export async function listPurchases(page: number, limit = PURCHASES_PAGE_SIZE): Promise<IpaToolPurchasesResponse> {
+  if (!Number.isInteger(page) || page < 1) {
+    throw new RangeError(`listPurchases: page must be a positive integer (1-indexed), got ${page}`);
+  }
+  const cappedLimit = Math.min(Math.max(Math.trunc(limit), 1), PURCHASES_PAGE_SIZE);
+
+  const isAuthenticated = await ensureAuthenticated();
+  if (!isAuthenticated) {
+    throw new NeedsLoginError("Sign in with your Apple ID to see your purchases");
+  }
+
+  logger.log(`[ipatool] Listing purchases: ipatool page ${page}, limit ${cappedLimit}`);
+  const { stdout } = await execFileAsync(IPATOOL_PATH, [
+    "list-purchases",
+    "--format",
+    "json",
+    "--non-interactive",
+    "-l",
+    cappedLimit.toString(),
+    "-p",
+    page.toString(),
+  ]);
+
+  // ipatool reports some failures on stdout with exit code 0, so a parsed
+  // payload is not by itself a success.
+  const parsed = safeJsonParse<Partial<IpaToolPurchasesResponse> & { error?: string }>(stdout, {});
+  if (parsed.error) {
+    throw new Error(parsed.error);
+  }
+  if (!Array.isArray(parsed.apps)) {
+    throw new Error("ipatool returned no purchase list — try `ipatool auth info` in a terminal");
+  }
+
+  logger.log(`[ipatool] Purchases page ${page}: ${parsed.apps.length} of ${parsed.totalCount ?? 0} total`);
+  return {
+    apps: parsed.apps,
+    count: parsed.count ?? parsed.apps.length,
+    totalCount: parsed.totalCount ?? parsed.apps.length,
+    page: parsed.page ?? page,
+  };
 }
 
 /**

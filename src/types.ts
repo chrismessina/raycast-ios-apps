@@ -138,6 +138,32 @@ export interface IpaToolSearchResponse {
   apps: IpaToolSearchApp[];
 }
 
+/**
+ * One row of `ipatool list-purchases`.
+ *
+ * `price` is 0 on every record regardless of what was actually paid — it is not
+ * the purchase price and must never be displayed or sorted on.
+ */
+export interface IpaToolPurchasedApp {
+  id: number;
+  bundleID: string;
+  name: string;
+  version: string;
+  price: number;
+  /** ISO 8601, e.g. "2026-08-25T19:02:46Z" */
+  purchaseDate: string;
+}
+
+/**
+ * `ipatool list-purchases` response wrapper. `page` is 1-indexed.
+ */
+export interface IpaToolPurchasesResponse {
+  count: number;
+  totalCount: number;
+  page: number;
+  apps: IpaToolPurchasedApp[];
+}
+
 // =============================================================================
 // PLATFORM & SCREENSHOT TYPES
 // =============================================================================

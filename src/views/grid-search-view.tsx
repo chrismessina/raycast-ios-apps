@@ -14,6 +14,7 @@ interface GridSearchViewProps {
   onDownload: (app: AppDetails) => Promise<string | null | undefined>;
   onToggleView: () => void;
   onSearchTextChange: (text: string) => void;
+  searchBarAccessory?: Grid.Props["searchBarAccessory"];
 }
 
 export function GridSearchView({
@@ -28,6 +29,7 @@ export function GridSearchView({
   onDownload,
   onToggleView,
   onSearchTextChange,
+  searchBarAccessory,
 }: GridSearchViewProps) {
   return (
     <Grid
@@ -38,6 +40,7 @@ export function GridSearchView({
       fit={Grid.Fit.Fill}
       aspectRatio="1"
       onSearchTextChange={onSearchTextChange}
+      searchBarAccessory={searchBarAccessory}
     >
       {/* Handle error state */}
       {error && <Grid.EmptyView title={error} icon={{ source: Icon.Warning }} />}

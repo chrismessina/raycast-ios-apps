@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-A Raycast extension for searching, viewing, and downloading iOS apps from the App Store. Uses `ipatool` (CLI, v2.3.1+) for App Store auth/downloads and the iTunes Search API + App Store web scraping (shoebox JSON) for rich metadata and screenshots.
+A Raycast extension for searching, viewing, and downloading iOS apps from the App Store. Uses `ipatool` (CLI, v2.5.0+) for App Store auth/downloads and the iTunes Search API + App Store web scraping (shoebox JSON) for rich metadata and screenshots.
 
 ## Commands
 
@@ -69,7 +69,7 @@ Raycast `LocalStorage` (`src/utils/storage.ts`) persists favorites, download his
 
 ### External Dependencies
 
-- `ipatool` v2.3.1+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference. v2.3.1 is the floor because it restored App Store login after Apple moved the authenticate endpoint (majd/ipatool#507). v2.3.2 (recommended) adds a fallback to legacy Store authentication for extra resilience but is not required — the version gate accepts any build ≥ 2.3.1.
+- `ipatool` v2.5.0+ — Homebrew install required; auto-detected at common paths or set via `ipatoolPath` preference. v2.4.0 is where Apple's commerce auth gate was actually fixed: PR majd/ipatool#525 replaced App Store auth with SAP-signed requests, closing the HTTP 403 "empty or non-plist body" failures (majd/ipatool#522, #523). v2.5.0 is the floor because it builds on that with `list-purchases`, visionOS search/download, transient-auth retry, a SAP guest-timeout fix, and a macOS keychain-access fix. The version gate accepts any build ≥ 2.5.0.
 - `@chrismessina/raycast-logger` — custom logger (`logger.log`, `logger.error`); use this rather than `console.*`.
 - `p-limit` — concurrency control for downloads.
 - `lodash` — utility functions.

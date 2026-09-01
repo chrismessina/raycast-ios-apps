@@ -18,7 +18,9 @@
 
 - **Search by anything that identifies an app** — name, developer, bundle ID, App Store URL, or numeric app ID. Pasting a URL or ID finds brand-new apps that Apple's term index has not picked up yet
 - **Rich app details** — ratings, screenshots, descriptions, release and version history, developer info
+- **Filter search by platform** — iPhone, iPad, Mac, or Apple TV, remembered between launches
 - **Developer's catalogue** — browse every app by one developer inside Raycast, without opening the App Store
+- **Purchased apps** — everything this Apple ID has ever acquired, newest first, sortable by purchase date or name. Finds apps the Store search can't, including titles that have since been delisted
 - **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`
 - **Full-resolution screenshots** — extracted per platform (iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro) and filtered by your preferences
 - **Favorites** — star apps for quick access; export the list to Markdown or CSV
@@ -32,7 +34,7 @@
 
 - [Raycast](https://www.raycast.com/) installed
 - macOS — `ipatool` and the Keychain integration are macOS-only
-- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.3.1 or greater** (2.3.2 recommended), for downloads
+- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.5.0 or greater**, for downloads. Anything older hits Apple's commerce auth gate — the HTTP 403 "empty or non-plist body" failure ([majd/ipatool#522](https://github.com/majd/ipatool/issues/522), [#523](https://github.com/majd/ipatool/issues/523)) fixed in 2.4.0 by SAP-signed App Store requests. 2.5.0 adds `list-purchases`, visionOS search/download, and transient-auth retry. The floor is enforced in `/Users/messina/Developer/GitHub/chrismessina/raycast-ios-apps/src/utils/ipatool-validator.ts`.
 
 ```bash
 # Homebrew, if you don't have it
@@ -67,9 +69,12 @@ brew install ipatool
 | Command | Mode | Description |
 | --- | --- | --- |
 | Search iOS Apps | `view` | Search the App Store; recent searches are tracked automatically |
+| View Purchased Apps | `view` | Everything this Apple ID owns, paged as you scroll and sortable by purchase date |
 | View Favorites | `view` | Manage starred apps and export them to Markdown or CSV |
 | Download History | `view` | Browse past downloads with sorting, filtering, and re-download |
 | Logout | `no-view` | Revoke `ipatool` auth and clear stored credentials |
+
+**On View Purchased Apps:** `ipatool list-purchases` costs roughly six seconds per request regardless of page size — that is per-request overhead on Apple's side, not per-app — so the first page takes a moment and later visits open from cache. Pages load as you scroll. Sorting by **purchase date** is done by Apple and covers the whole library; sorting by **name** can only reorder the rows already loaded, and the section header says how many that is. No price is shown: the purchase records report `0` for every app, so what you actually paid is not recoverable.
 
 ### Raycast AI Tools
 

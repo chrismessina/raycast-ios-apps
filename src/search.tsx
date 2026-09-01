@@ -1,3 +1,4 @@
+import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
 import { Action, ActionPanel, Icon, Keyboard, List, LocalStorage } from "@raycast/api";
 import { AppListItem } from "./components/app-list-item";
@@ -6,23 +7,66 @@ import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import { GridSearchView } from "./views/grid-search-view";
 
 const VIEW_MODE_STORAGE_KEY = "search-view-mode";
+const PLATFORM_ENTITY_STORAGE_KEY = "search-platform-entity";
+
+/**
+ * iTunes filters platform through the single-valued `entity` query param.
+ * "All Apps" is the plain `software` entity (iPhone + universal apps), so a
+ * separate "iPhone" option would issue a byte-identical request — omitted.
+ * iTunes has no visionOS entity.
+ */
+// One platform at a time — iTunes' `entity` param is single-valued, and there is
+// no all-platforms entity to offer. `software` is specifically the iPhone
+// storefront, NOT a superset: Procreate is iPad-only and does not appear under
+// `software` at all (you get Procreate Pocket instead), so labelling it
+// "All Apps" claimed a breadth it does not have.
+const PLATFORM_OPTIONS: { title: string; value: string; icon: Icon }[] = [
+  { title: "iPhone", value: "software", icon: Icon.Mobile },
+  { title: "iPad", value: "iPadSoftware", icon: Icon.AppWindowSidebarLeft },
+  { title: "Mac", value: "macSoftware", icon: Icon.Desktop },
+  { title: "Apple TV", value: "tvSoftware", icon: Icon.Monitor },
+];
+const DEFAULT_PLATFORM_ENTITY = PLATFORM_OPTIONS[0].value;
 
 export default function Search() {
   // View state management with persistence
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [isViewModeLoaded, setIsViewModeLoaded] = useState(false);
 
-  // Load saved view mode on mount
+  // Platform filter (iTunes `entity`), persisted like the view mode above
+  const [platformEntity, setPlatformEntity] = useState(DEFAULT_PLATFORM_ENTITY);
+
+  // Load saved view mode and platform filter on mount
   useEffect(() => {
-    async function loadViewMode() {
-      const savedMode = await LocalStorage.getItem<"list" | "grid">(VIEW_MODE_STORAGE_KEY);
-      if (savedMode) {
-        setViewMode(savedMode);
+    async function loadPreferences() {
+      // Restoring a preference is a convenience; failing to restore one must
+      // never gate the UI. Before this was `Promise.all` + an unguarded flag,
+      // so a single rejected read left every Search surface on a permanent
+      // spinner. Defaults are correct on their own — always release the gate.
+      try {
+        const [savedMode, savedEntity] = await Promise.all([
+          LocalStorage.getItem<"list" | "grid">(VIEW_MODE_STORAGE_KEY),
+          LocalStorage.getItem<string>(PLATFORM_ENTITY_STORAGE_KEY),
+        ]);
+        if (savedMode) {
+          setViewMode(savedMode);
+        }
+        if (savedEntity && PLATFORM_OPTIONS.some((option) => option.value === savedEntity)) {
+          setPlatformEntity(savedEntity);
+        }
+      } catch (error) {
+        logger.error("[Search] Could not restore saved preferences; using defaults:", error);
+      } finally {
+        setIsViewModeLoaded(true);
       }
-      setIsViewModeLoaded(true);
     }
-    loadViewMode();
+    loadPreferences();
   }, []);
+
+  const handlePlatformChange = async (entity: string) => {
+    setPlatformEntity(entity);
+    await LocalStorage.setItem(PLATFORM_ENTITY_STORAGE_KEY, entity);
+  };
 
   // Save view mode when it changes
   const handleViewModeChange = async (mode: "list" | "grid") => {
@@ -41,7 +85,20 @@ export default function Search() {
     recentSearches,
     clearRecentSearches,
     removeRecentSearch,
-  } = useAppSearch("", 500);
+  } = useAppSearch("", 500, platformEntity);
+
+  // List.Dropdown and Grid.Dropdown are the same component, so one element
+  // serves both view modes.
+  const platformDropdown = (
+    <List.Dropdown tooltip="Show results for one platform" value={platformEntity} onChange={handlePlatformChange}>
+      {/* Sectioned so the single-choice nature reads at a glance. */}
+      <List.Dropdown.Section title="Platform">
+        {PLATFORM_OPTIONS.map((option) => (
+          <List.Dropdown.Item key={option.value} title={option.title} value={option.value} icon={option.icon} />
+        ))}
+      </List.Dropdown.Section>
+    </List.Dropdown>
+  );
   const authNavigation = useAuthNavigation();
   const { downloadAppDetails } = useAppDownload(authNavigation);
   const { isFavorite, addFavorite, removeFavorite } = useFavoriteApps();
@@ -61,6 +118,7 @@ export default function Search() {
         onDownload={downloadAppDetails}
         onToggleView={() => handleViewModeChange("list")}
         onSearchTextChange={setSearchText}
+        searchBarAccessory={platformDropdown}
       />
     );
   }
@@ -68,7 +126,11 @@ export default function Search() {
   // Show recent searches when no search text
   if (!searchText) {
     return (
-      <List onSearchTextChange={setSearchText} isLoading={isLoading || !isViewModeLoaded}>
+      <List
+        onSearchTextChange={setSearchText}
+        isLoading={isLoading || !isViewModeLoaded}
+        searchBarAccessory={platformDropdown}
+      >
         {recentSearches.length > 0 && (
           <List.Section title="Recent Searches">
             {recentSearches.map((search, index) => (
@@ -117,6 +179,7 @@ export default function Search() {
       searchBarPlaceholder="Search by name, App Store URL, or app ID..."
       throttle
       navigationTitle="Search iOS Apps"
+      searchBarAccessory={platformDropdown}
     >
       {/* Handle error state */}
       {error && <List.EmptyView title={error} icon={{ source: Icon.Warning }} />}

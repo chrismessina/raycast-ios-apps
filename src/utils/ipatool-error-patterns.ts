@@ -42,7 +42,7 @@ export interface IpatoolErrorInfo {
     | "maintenance" // Includes Apple error 5002 and other temporary server issues
     | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
     | "built_in_app" // Apple's own apps, which the Store never licenses to third-party clients
-    | "apple_auth_gate" // Apple refuses the auth handshake outright; no client-side remedy
+    | "apple_auth_gate" // Apple refuses the auth handshake; fixed by ipatool 2.4.0+ SAP-signed requests
     | "regional_restriction"
     | "account_restriction"
     | "generic";
@@ -290,6 +290,11 @@ export function analyzeIpatoolError(
   // gated by entitlements only Apple's signed `appstoreagent` holds — iMazing
   // and even iTunes 12.6.5.3 on genuine Apple hardware fail the same way.
   //
+  // ipatool 2.4.0 (majd/ipatool#525) replaced App Store auth with SAP-signed
+  // requests and closed both issues, so the remedy is now an upgrade. The
+  // version gate in ipatool-validator.ts should catch stale binaries first;
+  // this branch stays as the backstop for one that slipped past it.
+  //
   // Must classify BEFORE permission_denied: a "403 Forbidden" phrasing would
   // otherwise match that block's `forbidden` and read as a filesystem problem.
   // isAuthError stays false on purpose — bouncing to the sign-in form sends the
@@ -309,7 +314,8 @@ export function analyzeIpatoolError(
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Apple is blocking third-party downloads. Not a credentials problem — signing in again won't help.",
+      userMessage:
+        "Apple rejected the download handshake. Upgrade ipatool to 2.5.0+ (brew upgrade ipatool) — signing in again won't help.",
       errorType: "apple_auth_gate",
     };
   }

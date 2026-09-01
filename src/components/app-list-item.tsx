@@ -16,6 +16,13 @@ interface AppListItemProps {
   /** Set false inside DeveloperAppsView, where the action would re-push the same view. */
   showDeveloperApps?: boolean;
   /**
+   * Set false where the price would be read as a statement about a past
+   * transaction. In Purchased Apps the only price available is the CURRENT
+   * store price, so a title bought for $19.99 in 2008 and free today would
+   * render "Free" in a list of things you paid for.
+   */
+  showPrice?: boolean;
+  /**
    * Extra actions appended after the standard panel, e.g. a view-mode toggle.
    * Typed off ActionPanel rather than React.ReactNode: @raycast/api bundles its
    * own @types/react, and the two ReactNode types are not assignable.
@@ -37,6 +44,7 @@ export function AppListItem({
   onAddFavorite,
   onRemoveFavorite,
   showDeveloperApps = true,
+  showPrice = true,
   children,
 }: AppListItemProps) {
   const rating = app.averageUserRatingForCurrentVersion || app.averageUserRating;
@@ -48,7 +56,7 @@ export function AppListItem({
       icon={app.iconUrl ? { source: app.iconUrl, mask: Image.Mask.RoundedRectangle } : Icon.AppWindow}
       accessories={[
         { text: app.version },
-        { text: formatPrice(app.price, app.currency) },
+        ...(showPrice ? [{ text: formatPrice(app.price, app.currency) }] : []),
         { text: formatDate(app.currentVersionReleaseDate || app.releaseDate) },
         { text: rating ? renderStarRating(rating) : "" },
         {

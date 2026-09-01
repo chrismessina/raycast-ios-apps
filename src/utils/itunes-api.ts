@@ -227,9 +227,14 @@ export async function fetchITunesAppDetails(bundleId: string): Promise<ITunesRes
  * Search for apps using iTunes Search API
  * @param term Search term
  * @param limit Maximum number of results to return
+ * @param entity iTunes entity to scope the search to (platform filter). Defaults to iPhone/universal software.
  * @returns Array of iTunes search results
  */
-export async function searchITunesApps(term: string, limit = 20): Promise<ITunesResult[]> {
+export async function searchITunesApps(
+  term: string,
+  limit = 20,
+  entity: string = ITUNES_SOFTWARE_ENTITY,
+): Promise<ITunesResult[]> {
   try {
     // Apply rate limiting
     await rateLimit(apiRateLimiter);
@@ -238,10 +243,12 @@ export async function searchITunesApps(term: string, limit = 20): Promise<ITunes
     const url = new URL(ITUNES_API_BASE_URL + ITUNES_SEARCH_ENDPOINT);
     url.searchParams.append("term", term);
     url.searchParams.append("country", ITUNES_DEFAULT_COUNTRY);
-    url.searchParams.append("entity", ITUNES_SOFTWARE_ENTITY);
+    url.searchParams.append("entity", entity);
     url.searchParams.append("limit", limit.toString());
 
-    logger.log(`[iTunes API] Searching for "${term}" with limit ${limit} from ${url.toString()}`);
+    logger.log(
+      `[iTunes API] Searching for "${term}" with entity "${entity}" and limit ${limit} from ${url.toString()}`,
+    );
 
     // Fetch data from iTunes API with retry on transient failures
     const response = await fetchITunesWithRetry(url.toString(), `"${term}"`);
@@ -342,6 +349,41 @@ async function lookupITunes(params: Record<string, string>, context: string): Pr
 }
 
 /**
+ * Look up many apps at once by their numeric App Store track IDs.
+ *
+ * The lookup endpoint accepts a comma-separated `id` list, so a whole page of
+ * purchases is enriched in ONE request instead of N. Apple caps the list, so
+ * callers are chunked at {@link ITUNES_LOOKUP_ID_CHUNK}.
+ *
+ * Results come back in Apple's order and may be shorter than the input: a
+ * delisted app returns nothing at all. Callers must key off the returned
+ * trackId rather than assuming positional correspondence — a third of a long
+ * purchase history is typically missing from the Store.
+ *
+ * @param trackIds App Store track IDs to look up
+ * @returns The apps Apple still lists, keyed by trackId
+ */
+export async function lookupITunesAppsByIds(trackIds: Array<number | string>): Promise<Map<number, ITunesResult>> {
+  const found = new Map<number, ITunesResult>();
+  if (trackIds.length === 0) {
+    return found;
+  }
+
+  for (let i = 0; i < trackIds.length; i += ITUNES_LOOKUP_ID_CHUNK) {
+    const chunk = trackIds.slice(i, i + ITUNES_LOOKUP_ID_CHUNK);
+    const results = await lookupITunes({ id: chunk.join(",") }, `${chunk.length} app id(s)`);
+    for (const result of results) {
+      if (result.trackId) {
+        found.set(result.trackId, result);
+      }
+    }
+  }
+
+  logger.log(`[iTunes API] Batch lookup matched ${found.size} of ${trackIds.length} requested id(s)`);
+  return found;
+}
+
+/**
  * Look up a single app by its numeric App Store track ID.
  * @param trackId App Store track ID (digits only)
  * @returns The app, or null when no app carries that ID
@@ -357,6 +399,12 @@ export async function lookupITunesAppById(trackId: string): Promise<ITunesResult
  * must say so rather than presenting a truncated list as complete.
  */
 export const ARTIST_LOOKUP_LIMIT = 200;
+
+/**
+ * Track IDs per batch lookup request. Apple accepts a comma-separated `id`
+ * list; 190 keeps the URL clear of length limits while staying near the cap.
+ */
+const ITUNES_LOOKUP_ID_CHUNK = 190;
 
 /**
  * Look up every app published by a developer.
