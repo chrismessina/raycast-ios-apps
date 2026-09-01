@@ -6,6 +6,7 @@ import type { AppDetails } from "../types";
 import {
   AppleAuthGateError,
   BuiltInAppError,
+  clearAuthenticationCache,
   ensureAuthenticated,
   Needs2FAError,
   NeedsLoginError,
@@ -181,6 +182,12 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         }
       } catch (error) {
         if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+          // The extension has now OBSERVED an auth failure. These typed errors
+          // are handled here rather than through handleAuthError, so nothing
+          // else clears the cached "authenticated" result — leaving it would
+          // let the next operation skip the check and fail server-side again.
+          clearAuthenticationCache();
+
           logger.log(
             `[useAppDownload] Pre-authentication indicates auth required (${error instanceof NeedsLoginError ? "login" : "2FA"}). Suppressing HUD and pushing form inline.`,
           );
@@ -465,6 +472,12 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       // Check if this is a specific authentication error that should be handled by the form flow
       if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
+        // The extension has now OBSERVED an auth failure. These typed errors
+        // are handled here rather than through handleAuthError, so nothing
+        // else clears the cached "authenticated" result — leaving it would
+        // let the next operation skip the check and fail server-side again.
+        clearAuthenticationCache();
+
         // Loop breaker: if the user already completed a sign-in during this
         // operation and we STILL get an auth error, re-login isn't fixing it
         // (ipatool#449 — Apple rejects the purchase despite a valid session).

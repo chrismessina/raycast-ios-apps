@@ -82,9 +82,42 @@ export async function getStoredCredentials(): Promise<{ email?: string; password
 }
 
 /**
+ * A confirmed-authenticated result, cached briefly.
+ *
+ * A single download calls `ensureAuthenticated()` twice — once as the hook's
+ * pre-flight, once inside `downloadApp` — and each call spawned `--version`
+ * plus `auth info`. The TTL is deliberately short: the ipatool session lives in
+ * the system Keychain and can be revoked from outside this extension, so this
+ * collapses the duplicate calls of one user action without pretending to know
+ * the session state minutes later. Cleared by {@link invalidateAuthentication}.
+ */
+let authConfirmedAt = 0;
+/**
+ * Bumped on every invalidation. An `auth info` already in flight when the
+ * session is cleared must not write its now-meaningless success back — ipatool
+ * calls are not abortable, so the old check WILL finish and try.
+ */
+let authGeneration = 0;
+let authInFlight: Promise<boolean> | null = null;
+const AUTH_CACHE_TTL_MS = 30_000;
+
+/** Forget the cached auth result. Call whenever the session may have changed. */
+export function clearAuthenticationCache(): void {
+  authGeneration += 1;
+  authConfirmedAt = 0;
+  authInFlight = null;
+}
+
+/**
  * Clear stored credentials from storage
  */
 export async function clearStoredCredentials(): Promise<void> {
+  // Invalidate FIRST, before any awaited Keychain/storage work: a check that
+  // is already in flight must be fenced off before this function yields.
+  // Every credential-clearing path routes through here — logout, auth-error
+  // invalidation, re-login — so no caller can forget to do it.
+  clearAuthenticationCache();
+
   // Capture appleId first for keychain deletion
   const appleId = await LocalStorage.getItem<string>("appleId");
   // Best-effort cleanup of secure storage for current account
@@ -204,6 +237,63 @@ export async function loginToAppleId(appleId?: string, password?: string, twoFac
  * @param options Optional authentication credentials
  */
 export async function ensureAuthenticated(options?: {
+  email?: string;
+  password?: string;
+  code?: string;
+}): Promise<boolean> {
+  // Anything carrying credentials is an explicit (re)login — never serve those
+  // from cache, and drop whatever we had.
+  // Presence, not truthiness: `{ code: "" }` is still an explicit request and
+  // must reach the real flow to be rejected, not be answered from cache.
+  const isExplicitLogin = options !== undefined && ("email" in options || "password" in options || "code" in options);
+  if (isExplicitLogin) {
+    clearAuthenticationCache();
+    return ensureAuthenticatedUncached(options);
+  }
+
+  if (Date.now() - authConfirmedAt < AUTH_CACHE_TTL_MS) {
+    logger.log("[Auth] Reusing the authentication check from this operation");
+    return true;
+  }
+  if (authInFlight) {
+    return authInFlight;
+  }
+
+  const generation = authGeneration;
+  const attempt: Promise<boolean> = ensureAuthenticatedUncached(options)
+    .then((authenticated) => {
+      // Only the current generation may write. If the session was cleared while
+      // this was in flight, its result describes a session that no longer
+      // exists.
+      if (generation === authGeneration) {
+        authConfirmedAt = authenticated ? Date.now() : 0;
+      } else {
+        logger.log("[Auth] Discarding an auth result from before the session was cleared");
+      }
+      return authenticated;
+    })
+    .catch((error) => {
+      // A throw is a failure too. Without this the previous SUCCESSFUL
+      // timestamp survives, so a genuine auth failure could be masked by the
+      // cache for the rest of the TTL.
+      if (generation === authGeneration) {
+        authConfirmedAt = 0;
+      }
+      throw error;
+    })
+    .finally(() => {
+      // Clear the slot only if it is still ours — an unconditional null here
+      // would wipe a newer attempt started after an invalidation.
+      if (authInFlight === attempt) {
+        authInFlight = null;
+      }
+    });
+
+  authInFlight = attempt;
+  return attempt;
+}
+
+async function ensureAuthenticatedUncached(options?: {
   email?: string;
   password?: string;
   code?: string;

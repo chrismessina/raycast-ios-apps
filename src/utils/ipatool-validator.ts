@@ -45,7 +45,60 @@ async function failValidation(error: IpatoolSetupError, options: IpatoolValidati
  * Validates that ipatool is installed and accessible
  * @returns Promise<boolean> - true if ipatool is available, false otherwise
  */
+/**
+ * Successful validation, remembered for the life of this command process.
+ *
+ * Each Raycast command is its own short-lived process, so the ipatool binary
+ * cannot change underneath one. Only SUCCESS is cached: a failure must stay
+ * retryable, since the user's fix is to install or upgrade ipatool and try
+ * again without relaunching.
+ */
+let validationPassedAt = 0;
+/**
+ * Deliberately a TTL, not the whole process lifetime. Most commands are
+ * short-lived, but a menu-bar or long-open command can outlive a
+ * `brew upgrade ipatool` — a permanent memo would let a downgraded binary skip
+ * the minimum-version floor for as long as that command stayed open.
+ */
+const VALIDATION_CACHE_TTL_MS = 60_000;
+/**
+ * Dedupes concurrent validations onto one `--version` spawn, but only for
+ * callers wanting the SAME failure policy: a `throwOnFailure: true` caller must
+ * not receive a resolved `false` from a lenient caller, nor vice versa.
+ */
+let validationInFlight: { promise: Promise<boolean>; throwOnFailure: boolean } | null = null;
+
 export async function validateIpatoolInstallation(options: IpatoolValidationOptions = {}): Promise<boolean> {
+  if (Date.now() - validationPassedAt < VALIDATION_CACHE_TTL_MS) {
+    return true;
+  }
+
+  const throwOnFailure = Boolean(options.throwOnFailure);
+  if (validationInFlight && validationInFlight.throwOnFailure === throwOnFailure) {
+    return validationInFlight.promise;
+  }
+
+  const entry: { promise: Promise<boolean>; throwOnFailure: boolean } = {
+    throwOnFailure,
+    promise: runIpatoolValidation(options)
+      .then((passed) => {
+        // Only success is remembered; a failure stays retryable so the user can
+        // install or upgrade ipatool without relaunching.
+        validationPassedAt = passed ? Date.now() : 0;
+        return passed;
+      })
+      .finally(() => {
+        if (validationInFlight === entry) {
+          validationInFlight = null;
+        }
+      }),
+  };
+
+  validationInFlight = entry;
+  return entry.promise;
+}
+
+async function runIpatoolValidation(options: IpatoolValidationOptions = {}): Promise<boolean> {
   try {
     // First check if the file exists at the expected path
     if (!existsSync(IPATOOL_PATH)) {
