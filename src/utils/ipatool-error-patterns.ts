@@ -43,6 +43,7 @@ export interface IpatoolErrorInfo {
     | "not_yet_released" // Pre-release / Coming Soon apps that aren't downloadable yet
     | "built_in_app" // Apple's own apps, which the Store never licenses to third-party clients
     | "apple_auth_gate" // Apple refuses the auth handshake; fixed by ipatool 2.4.0+ SAP-signed requests
+    | "apple_empty_response" // HTTP 200 with an empty product payload for one specific app
     | "regional_restriction"
     | "account_restriction"
     | "generic";
@@ -545,6 +546,26 @@ export function analyzeIpatoolError(
   }
 
   // Generic fallback - but now we know it's likely not an auth error
+  // Apple answered 200 with an empty product payload (`Items: []`, blank
+  // FailureType) and ipatool reduced that to the bare string "invalid
+  // response". Per-app, not per-account: the app IS owned and other apps
+  // download fine in the same session (majd/ipatool#538). Checked LAST so a
+  // more specific signature always wins.
+  // Anchored, not a bare substring: ipatool emits this as the WHOLE error, so
+  // only the bare string or a `prefix: invalid response` wrapping counts. A
+  // composite like "proxy returned invalid response" is a different, probably
+  // retryable failure and must not be classified terminal.
+  if (/(^|:\s*)invalid response$/.test(fullMessage.trim())) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "Apple returned an empty response for this app. A known ipatool bug — other apps still download.",
+      errorType: "apple_empty_response",
+    };
+  }
+
   // if none of the specific patterns matched
   return {
     isAuthError: false,

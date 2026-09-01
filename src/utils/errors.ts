@@ -54,6 +54,23 @@ export class BuiltInAppError extends Error {
 }
 
 /**
+ * Thrown when Apple answers a download or version request with HTTP 200 but an
+ * empty product payload (`Items: []`, no `FailureType`, no `CustomerMessage`),
+ * which ipatool surfaces as the bare string `invalid response`.
+ *
+ * It is per-app and not about the account: the app IS owned, and most other
+ * apps download normally in the same session. Reproduced outside this
+ * extension with `ipatool list-versions`, and reported upstream as
+ * majd/ipatool#538. There is no client-side remedy, so retrying is pointless.
+ */
+export class AppleEmptyResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AppleEmptyResponseError";
+  }
+}
+
+/**
  * Thrown when Apple refuses the App Store authentication handshake outright —
  * HTTP 403 (or 204) with an empty / non-plist body, from BOTH the native and
  * the legacy MZFinance endpoints, *before* any credential is processed.

@@ -1,13 +1,27 @@
 import { logger } from "@chrismessina/raycast-logger";
 import * as Raycast from "@raycast/api";
-import { AppleAuthGateError, BuiltInAppError, Needs2FAError, NeedsLoginError, NotYetReleasedError } from "./errors";
+import {
+  AppleAuthGateError,
+  AppleEmptyResponseError,
+  BuiltInAppError,
+  Needs2FAError,
+  NeedsLoginError,
+  NotYetReleasedError,
+} from "./errors";
 import { login as ipatoolLogin } from "./ipatool-auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { executeIpatoolCommand, IpatoolSetupError, validateIpatoolInstallation } from "./ipatool-validator";
 import { handleProcessErrorCleanup } from "./temp-file-manager";
 
 // Re-exported so every existing `from "./auth"` importer keeps working.
-export { AppleAuthGateError, BuiltInAppError, Needs2FAError, NeedsLoginError, NotYetReleasedError };
+export {
+  AppleAuthGateError,
+  AppleEmptyResponseError,
+  BuiltInAppError,
+  Needs2FAError,
+  NeedsLoginError,
+  NotYetReleasedError,
+};
 
 const { LocalStorage } = Raycast;
 

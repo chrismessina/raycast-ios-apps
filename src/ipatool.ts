@@ -9,6 +9,7 @@ import { getConfig } from "./config";
 import { IpaToolPurchasesResponse, IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import {
   AppleAuthGateError,
+  AppleEmptyResponseError,
   BuiltInAppError,
   ensureAuthenticated,
   Needs2FAError,
@@ -507,6 +508,17 @@ export async function purchaseApp(
   // as a plain PurchaseResult let the caller wrap it into "Could not get a
   // license for X: ...", which erased the signature and produced a generic
   // toast well over the length limit.
+  // Same reasoning as the auth gate below: a free app fails download with
+  // "license is required" first, so this can surface from the PURCHASE call
+  // rather than the download one. Returning it as a plain PurchaseResult let
+  // the caller wrap it into "Could not get a license for X: ...", which erased
+  // the classification and produced a generic toast.
+  if (errorAnalysis.errorType === "apple_empty_response") {
+    logger.error(`[ipatool] Apple returned an empty payload during purchase for ${displayName}`);
+    done({ result: "failed", errorType: errorAnalysis.errorType });
+    throw new AppleEmptyResponseError(errorAnalysis.userMessage);
+  }
+
   if (errorAnalysis.errorType === "apple_auth_gate") {
     logger.error(`[ipatool] Apple auth gate during purchase for ${displayName}: ${errorAnalysis.userMessage}`);
     done({ result: "failed", errorType: errorAnalysis.errorType });
@@ -1225,9 +1237,17 @@ export async function downloadApp(
               // Use the error analysis we already performed above
               // (errorAnalysis is already defined from the timeout check)
 
-              // Apple's auth gate has no client-side remedy; carry it as a typed
-              // error so the caller states that instead of re-deriving it from a
-              // wrapped string (and so it never bounces to the sign-in form).
+              // Apple answered 200 with an empty product payload for this
+              // specific app. Terminal and app-specific — typed so the caller
+              // says so rather than re-deriving it from a wrapped string.
+              if (errorAnalysis.errorType === "apple_empty_response") {
+                logger.error(
+                  `[ipatool] Apple returned an empty payload for ${appName || bundleId} — see majd/ipatool#538`,
+                );
+                reject(new AppleEmptyResponseError(errorAnalysis.userMessage));
+                return;
+              }
+
               if (errorAnalysis.errorType === "apple_auth_gate") {
                 logger.error(`[ipatool] Apple auth gate hit for ${appName || bundleId}: ${errorAnalysis.userMessage}`);
                 reject(new AppleAuthGateError(errorAnalysis.userMessage));
@@ -1316,6 +1336,12 @@ export async function downloadApp(
                     // propagate NeedsLoginError directly so the download hook redirects to sign-in
                     // Apple's gate is terminal and already typed — rethrow so the
                     // hook's typed branch sees it instead of a wrapped string.
+                    if (purchaseError instanceof AppleEmptyResponseError) {
+                      logger.error(`[ipatool] Apple returned an empty payload purchasing ${appName || bundleId}`);
+                      reject(purchaseError);
+                      return;
+                    }
+
                     if (purchaseError instanceof AppleAuthGateError) {
                       logger.error(`[ipatool] Apple auth gate during license purchase for ${appName || bundleId}`);
                       reject(purchaseError);

@@ -5,6 +5,7 @@ import { checkForExistingDownload, downloadApp } from "../ipatool";
 import type { AppDetails } from "../types";
 import {
   AppleAuthGateError,
+  AppleEmptyResponseError,
   BuiltInAppError,
   clearAuthenticationCache,
   ensureAuthenticated,
@@ -42,6 +43,7 @@ const authAttemptsByOp = new Map<string, number>();
 // types every lookup as possibly undefined.
 const BUILT_IN_APP_TITLE = "Built-in Apple App";
 const APPLE_AUTH_GATE_TITLE = "Downloads Blocked by Apple";
+const APPLE_EMPTY_RESPONSE_TITLE = "Apple Returned No Download";
 
 const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> = {
   network: "Network Error",
@@ -51,6 +53,7 @@ const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> 
   not_yet_released: "Not Released Yet",
   built_in_app: BUILT_IN_APP_TITLE,
   apple_auth_gate: APPLE_AUTH_GATE_TITLE,
+  apple_empty_response: APPLE_EMPTY_RESPONSE_TITLE,
   regional_restriction: "Region Restricted",
   account_restriction: "Account Restricted",
 };
@@ -422,6 +425,26 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       // Apple refuses the auth handshake itself — there is no retry, no
       // re-login, and no setting that fixes it. Terminal by construction.
+      // Per-app and terminal: the account owns it, other apps work, and no
+      // retry or re-login changes the answer.
+      if (error instanceof AppleEmptyResponseError) {
+        logger.error(`[useAppDownload] Apple returned an empty payload for ${name} (${bundleId}); not retryable.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = APPLE_EMPTY_RESPONSE_TITLE;
+          progressToast.message = error.message;
+          progressToast.primaryAction = {
+            title: "Copy Error",
+            onAction: () => {
+              Clipboard.copy(error.message);
+            },
+          };
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD(APPLE_EMPTY_RESPONSE_TITLE);
+        }
+        return null;
+      }
+
       if (error instanceof AppleAuthGateError) {
         logger.error(`[useAppDownload] Apple auth gate for ${name} (${bundleId}); download is not possible.`);
         if (progressToast) {
