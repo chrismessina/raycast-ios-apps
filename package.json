@@ -209,10 +209,10 @@
     },
     {
       "name": "verboseLogging",
-      "title": "Verbose Logging",
-      "description": "Write detailed diagnostic logs, including API URLs and timings",
+      "title": "Debug Logging",
+      "description": "Show detailed logs in the console for debugging.",
       "type": "checkbox",
-      "label": "Enable Verbose Logging",
+      "label": "Enable extra diagnostics in the console",
       "default": false,
       "required": false
     }
