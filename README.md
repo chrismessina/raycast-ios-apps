@@ -107,7 +107,7 @@ Search accepts an optional `limit` (default 10, max 20). **The AI tools search v
 | Max Stall Timeout        | milliseconds                                         | `30000`                     |
 | Cleanup Temporary Files  | on / off                                             | on                          |
 | Integrity Verification   | Basic, Checksum, Off                                 | Basic                       |
-| Verbose Logging          | on / off                                             | off                         |
+| Debug Logging            | on / off                                             | off                         |
 
 **On concurrency:** higher is faster but heavier; 3–7 suits most machines. **On platform filters:** screenshots are always _extracted_ for every platform Apple publishes — the preference controls only which are _downloaded and saved_, so disabling one saves time and disk, not fidelity.
 
