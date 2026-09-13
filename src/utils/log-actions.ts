@@ -10,7 +10,7 @@ interface CopyLogsContext {
   metadata?: Record<string, unknown>;
 }
 
-function stringifyError(error: unknown): string | undefined {
+export function stringifyError(error: unknown): string | undefined {
   if (!error) {
     return undefined;
   }

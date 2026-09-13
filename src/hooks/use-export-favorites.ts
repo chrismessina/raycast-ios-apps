@@ -1,9 +1,69 @@
-import { writeFile } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, extname, join } from "path";
+import { logger } from "@chrismessina/raycast-logger";
 import { useCallback } from "react";
 import { Clipboard, showInFinder, showToast, Toast } from "@raycast/api";
+import { showFailureToast } from "@raycast/utils";
+import { stringifyError } from "../utils/log-actions";
 import { useFavoriteApps, type FavoriteApp } from "./use-favorite-apps";
+
+/**
+ * House style: every failure toast offers the error on the clipboard.
+ * `showFailureToast` renders one line; the stack is what makes a report useful.
+ */
+function copyErrorAction(error: unknown): Toast.ActionOptions {
+  return {
+    title: "Copy Error",
+    onAction: (toast) => {
+      Clipboard.copy(stringifyError(error) ?? "Unknown error");
+      toast.hide();
+    },
+  };
+}
+
+/**
+ * Quote one CSV cell, neutralising spreadsheet formula injection.
+ *
+ * RFC 4180 quoting alone does NOT stop a spreadsheet executing a cell: Excel, Sheets
+ * and Numbers all evaluate a value beginning `=`, `+`, `-`, `@`, or a leading tab or
+ * carriage return, quoted or not. `name` and `sellerName` come straight from the iTunes
+ * API, so an app called `=HYPERLINK("http://evil","click")` would land as a live formula
+ * in the user's sheet. The leading apostrophe is the standard neutralisation and
+ * spreadsheets strip it on display.
+ *
+ * Applied to every column rather than per-field, so a newly added column cannot forget it.
+ */
+function csvCell(value: string): string {
+  const neutralised = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return `"${neutralised.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Write an export into ~/Downloads and return the path actually used.
+ *
+ * `mkdir` first: ~/Downloads is not guaranteed to exist, and without it an export on
+ * such a machine fails with a bare ENOENT. `flag: "wx"` then refuses to clobber an
+ * existing file — a plain existsSync check races its own write — and collisions fall
+ * back to `name 2`, `name 3`, … the way the Finder does.
+ */
+async function writeExport(fileName: string, contents: string): Promise<string> {
+  const directory = join(homedir(), "Downloads");
+  await mkdir(directory, { recursive: true });
+
+  const extension = extname(fileName);
+  const stem = fileName.slice(0, fileName.length - extension.length);
+
+  for (let attempt = 1; ; attempt++) {
+    const candidate = join(directory, attempt === 1 ? fileName : `${stem} ${attempt}${extension}`);
+    try {
+      await writeFile(candidate, contents, { encoding: "utf-8", flag: "wx" });
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
 
 /**
  * Generate markdown content from favorite apps
@@ -49,13 +109,13 @@ function generateCSV(favoriteApps: FavoriteApp[]): string {
   for (const item of favoriteApps) {
     const app = item.app;
     const row = [
-      `"${app.name.replace(/"/g, '""')}"`, // Escape quotes in CSV
-      `"${app.sellerName.replace(/"/g, '""')}"`,
-      `"${app.version}"`,
-      `"${app.price}"`,
-      `"${app.currency}"`,
-      `"${app.bundleId}"`,
-      `"${new Date(item.favoritedDate).toLocaleDateString()}"`,
+      csvCell(app.name),
+      csvCell(app.sellerName),
+      csvCell(app.version),
+      csvCell(String(app.price)),
+      csvCell(app.currency),
+      csvCell(app.bundleId),
+      csvCell(new Date(item.favoritedDate).toLocaleDateString()),
     ];
     csv += row.join(",") + "\n";
   }
@@ -75,13 +135,12 @@ export function useExportFavorites() {
       const markdown = generateMarkdown(favoriteApps);
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
       const fileName = `favorite-ios-apps-${timestamp}.md`;
-      const downloadsPath = join(homedir(), "Downloads", fileName);
+      const downloadsPath = await writeExport(fileName, markdown);
 
-      await writeFile(downloadsPath, markdown, "utf-8");
       await showToast({
         style: Toast.Style.Success,
         title: "Export Complete",
-        message: `Favorites saved to ${fileName}`,
+        message: `Favorites saved to ${basename(downloadsPath)}`,
         primaryAction: {
           title: "Show in Finder",
           shortcut: { modifiers: ["cmd"], key: "o" },
@@ -99,12 +158,8 @@ export function useExportFavorites() {
         },
       });
     } catch (error) {
-      console.error("Error exporting to markdown:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Export Failed",
-        message: "Could not export favorite apps",
-      });
+      logger.error("[export] Markdown export failed:", error);
+      await showFailureToast(error, { title: "Export Failed", primaryAction: copyErrorAction(error) });
     }
   }, [favoriteApps]);
 
@@ -114,13 +169,12 @@ export function useExportFavorites() {
       const csv = generateCSV(favoriteApps);
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
       const fileName = `favorite-ios-apps-${timestamp}.csv`;
-      const downloadsPath = join(homedir(), "Downloads", fileName);
+      const downloadsPath = await writeExport(fileName, csv);
 
-      await writeFile(downloadsPath, csv, "utf-8");
       await showToast({
         style: Toast.Style.Success,
         title: "Export Complete",
-        message: `Favorites saved to ${fileName}`,
+        message: `Favorites saved to ${basename(downloadsPath)}`,
         primaryAction: {
           title: "Show in Finder",
           shortcut: { modifiers: ["cmd"], key: "o" },
@@ -138,12 +192,8 @@ export function useExportFavorites() {
         },
       });
     } catch (error) {
-      console.error("Error exporting to CSV:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Export Failed",
-        message: "Could not export favorite apps",
-      });
+      logger.error("[export] CSV export failed:", error);
+      await showFailureToast(error, { title: "Export Failed", primaryAction: copyErrorAction(error) });
     }
   }, [favoriteApps]);
 
