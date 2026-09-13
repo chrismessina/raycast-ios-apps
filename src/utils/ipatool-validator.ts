@@ -10,10 +10,18 @@ import { IPATOOL_PATH, validateExecutablePath } from "./paths";
 const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";
 // Minimum supported ipatool version. 2.4.0 replaced App Store auth with
 // SAP-signed requests (majd/ipatool#525), closing the HTTP 403 "empty or
-// non-plist body" commerce gate (majd/ipatool#522, #523); 2.5.0 adds
-// list-purchases, visionOS search/download, and transient-auth retry. Older
-// builds hit the gate on every download. Newer builds are accepted as-is.
-const MINIMUM_IPATOOL_VERSION = "2.5.0";
+// non-plist body" commerce gate (majd/ipatool#522, #523); 2.5.0 added
+// list-purchases, visionOS search/download, and transient-auth retry.
+//
+// The floor moved to 2.6.0 on 2026-09-13 because 2.5.0 stopped being able to
+// download ANYTHING: Apple now answers its redownload call with either an
+// empty product payload (`Items: []`, surfaced as the bare `invalid response`,
+// majd/ipatool#538) or HTTP 500 with a non-plist body. Verified the same hour
+// on this machine — 2.5.0 failed `com.facebook.hatch` and `com.google.chrome.ios`
+// with `invalid response`; 2.6.0 downloaded both. 2.6.0's "improved recovery
+// from App Store errors" is the fix, so the remedy really is an upgrade.
+// Newer builds are accepted as-is.
+const MINIMUM_IPATOOL_VERSION = "2.6.0";
 const DEFAULT_COMMAND_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_VALIDATION_TIMEOUT = 5000; // 5 seconds
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB max output size
@@ -281,9 +289,11 @@ Minimum required: ${minimumVersion} or newer
 # To upgrade:
 brew upgrade ipatool
 
-# Or install from GitHub releases:
+# Homebrew can lag a new release by a day or two. If it still
+# installs an older build, use the release binary instead:
 # Download from: ${IPATOOL_GITHUB_URL}/releases
-# Make sure to download version ${minimumVersion} or newer
+# Make sure to download version ${minimumVersion} or newer,
+# then point the extension's "ipatool Path" preference at it
   `.trim();
 
   await showToast({
@@ -321,9 +331,11 @@ Minimum required: ${minimumVersion} or newer
 # To upgrade:
 brew upgrade ipatool
 
-# Or install from GitHub releases:
+# Homebrew can lag a new release by a day or two. If it still
+# installs an older build, use the release binary instead:
 # Download from: ${IPATOOL_GITHUB_URL}/releases
-# Make sure to download version ${minimumVersion} or newer
+# Make sure to download version ${minimumVersion} or newer,
+# then point the extension's "ipatool Path" preference at it
 
 # Current expected path: ${IPATOOL_PATH}
   `.trim();

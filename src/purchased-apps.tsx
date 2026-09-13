@@ -154,7 +154,7 @@ export default function PurchasedApps() {
           description={
             needsSignIn
               ? "Sign in with your Apple ID, then press ⌘R to try again."
-              : `${error.message}\n\nCheck that ipatool 2.5.0 or newer is installed (ipatool list-purchases needs it), then press ⌘R.`
+              : `${error.message}\n\nCheck that ipatool 2.6.0 or newer is installed (ipatool list-purchases needs it), then press ⌘R.`
           }
           actions={
             <ActionPanel>

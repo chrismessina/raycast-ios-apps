@@ -10,4 +10,4 @@
 - Download full-resolution screenshots and app icons, organised per platform
 - Favorites with Markdown and CSV export, plus download history and recent searches
 - Five Raycast AI tools: search, details, current version, download, and screenshot download
-- Requires `ipatool` 2.5.0 or greater
+- Requires `ipatool` 2.6.0 or greater

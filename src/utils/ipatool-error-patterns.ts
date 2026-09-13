@@ -315,8 +315,7 @@ export function analyzeIpatoolError(
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage:
-        "Apple rejected the download handshake. Upgrade ipatool to 2.5.0+ (brew upgrade ipatool) — signing in again won't help.",
+      userMessage: "Upgrade ipatool to 2.6.0+ — Apple rejected the App Store handshake. Signing in again won't help.",
       errorType: "apple_auth_gate",
     };
   }
@@ -432,7 +431,24 @@ export function analyzeIpatoolError(
   }
 
   // App Store maintenance / temporary unavailability
+  //
+  // Includes an Apple 5xx, e.g. `failed to send redownload request: unexpected
+  // response from Apple (HTTP 500): empty or non-plist body`. Apple returns the
+  // same empty/non-plist body it does for the 403 commerce gate, but a 5xx is
+  // transient server-side — it must read as "retry", not as the terminal
+  // "upgrade ipatool" the 403 branch above prescribes.
+  //
+  // Requires Apple's wording AND the status, exactly like the 403 tuple above,
+  // and for the same reason: `fullMessage` is errorMessage + stderr, and we
+  // spawn ipatool with `--verbose`, which dumps whole HTTP responses into
+  // stderr. A bare 5xx test would let a stale status line inside one of those
+  // dumps relabel an unrelated failure — an `app not found` whose verbose tail
+  // mentions a previous 503 would return "App Store Maintenance" from here,
+  // several branches before app_not_found gets to run.
+  // `http[/\d.]*\s*5\d\d` covers both `(HTTP 500)` and a raw status line like
+  // `HTTP/1.1 503 Service Unavailable`.
   if (
+    (fullMessage.includes("unexpected response from apple") && /http[/\d.]*\s*5\d\d/.test(fullMessage)) ||
     fullMessage.includes("service unavailable") ||
     fullMessage.includes("temporarily unavailable") ||
     fullMessage.includes("maintenance") ||
@@ -548,9 +564,10 @@ export function analyzeIpatoolError(
   // Generic fallback - but now we know it's likely not an auth error
   // Apple answered 200 with an empty product payload (`Items: []`, blank
   // FailureType) and ipatool reduced that to the bare string "invalid
-  // response". Per-app, not per-account: the app IS owned and other apps
-  // download fine in the same session (majd/ipatool#538). Checked LAST so a
-  // more specific signature always wins.
+  // response" (majd/ipatool#538). Originally per-app; as of 2026-09-13 every
+  // 2.5.0 download fails this way, and 2.6.0 downloads the same apps fine — so
+  // the remedy is the upgrade, which the version gate normally catches first.
+  // Checked LAST so a more specific signature always wins.
   // Anchored, not a bare substring: ipatool emits this as the WHOLE error, so
   // only the bare string or a `prefix: invalid response` wrapping counts. A
   // composite like "proxy returned invalid response" is a different, probably
@@ -561,7 +578,7 @@ export function analyzeIpatoolError(
       is2FARequired: false,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Apple returned an empty response for this app. A known ipatool bug — other apps still download.",
+      userMessage: "Upgrade ipatool to 2.6.0+ — Apple returns an empty response to older builds.",
       errorType: "apple_empty_response",
     };
   }

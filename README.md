@@ -34,7 +34,7 @@
 
 - [Raycast](https://www.raycast.com/) installed
 - macOS — `ipatool` and the Keychain integration are macOS-only
-- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.5.0 or greater**, for downloads. Anything older hits Apple's commerce auth gate — the HTTP 403 "empty or non-plist body" failure ([majd/ipatool#522](https://github.com/majd/ipatool/issues/522), [#523](https://github.com/majd/ipatool/issues/523)) fixed in 2.4.0 by SAP-signed App Store requests. 2.5.0 adds `list-purchases`, visionOS search/download, and transient-auth retry. The floor is enforced in `/Users/messina/Developer/GitHub/chrismessina/raycast-ios-apps/src/utils/ipatool-validator.ts`.
+- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.6.0 or greater**, for downloads. 2.4.0 fixed Apple's commerce auth gate — the HTTP 403 "empty or non-plist body" failure ([majd/ipatool#522](https://github.com/majd/ipatool/issues/522), [#523](https://github.com/majd/ipatool/issues/523)) — with SAP-signed App Store requests, and 2.5.0 added `list-purchases` and visionOS support. **2.6.0 is the floor** because Apple's redownload endpoint now answers older builds with an empty product payload ([majd/ipatool#538](https://github.com/majd/ipatool/issues/538)) or an HTTP 500, so 2.5.0 can no longer download anything. If `brew` hasn't picked up 2.6.0 yet, grab the [release build](https://github.com/majd/ipatool/releases) and point the extension's **ipatool Path** preference at it. The floor is enforced in `src/utils/ipatool-validator.ts`.
 
 ```bash
 # Homebrew, if you don't have it

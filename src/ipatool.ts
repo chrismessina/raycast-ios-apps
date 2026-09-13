@@ -948,7 +948,7 @@ export async function downloadApp(
 
       // Clean up any leftover temp files from previous failed downloads
       // This prevents "negative offset" errors when ipatool tries to resume from corrupted .ipa.tmp files
-      cleanupTempFilesByPattern(downloadsDir);
+      cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
 
       // Create secure spawn process with timeout management
       const { maxDownloadTimeout, maxStallTimeout } = getConfig();
@@ -963,13 +963,17 @@ export async function downloadApp(
           let lastProgress = 0;
           let stallTimer: NodeJS.Timeout;
           let lastReportedSize = 0;
+          // Liveness watermark, separate from lastReportedSize: it counts every
+          // byte written across BOTH files, so the repack phase still resets
+          // the stall timer even though the percentage no longer moves.
+          let lastObservedBytes = 0;
 
           const resetStallTimer = () => {
             if (stallTimer) clearTimeout(stallTimer);
             stallTimer = setTimeout(() => {
               logger.error(`[ipatool] Download stalled after ${maxStallTimeout / 1000} seconds without progress.`);
               child.kill();
-              cleanupTempFilesByPattern(downloadsDir);
+              cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
               reject(new Error("Download stalled."));
             }, maxStallTimeout);
           };
@@ -988,23 +992,44 @@ export async function downloadApp(
             }
 
             try {
-              // IPATool downloads to ${bundleId}_${adamId}_${version}.ipa
-              // Find any .ipa file in downloads dir that starts with bundleId
-              let downloadFilePath: string | null = null;
+              // ipatool downloads to ${bundleId}_${adamId}_${version}.ipa —
+              // but since 2.6.0 the bytes land in a sibling `.ipa.tmp` first,
+              // and the real `.ipa` is only assembled from it at the end (the
+              // repack that injects iTunes artwork). Matching `.ipa` alone
+              // therefore saw NOTHING for the whole network phase and reported
+              // no progress at all.
+              //
+              // Both files exist at once during the repack, so watch BOTH and
+              // drive progress off whichever is further along. The `_` in the
+              // prefix matters: a bare startsWith(bundleId) lets a download of
+              // `com.example.app` latch onto `com.example.app2`'s file.
+              let tmpSize = 0;
+              let finalSize = 0;
               const files = fs.readdirSync(downloadsDir);
               for (const file of files) {
-                if (file.startsWith(bundleId) && file.endsWith(".ipa")) {
-                  downloadFilePath = path.join(downloadsDir, file);
-                  break;
-                }
+                if (!file.startsWith(`${bundleId}_`)) continue;
+                const isTmp = file.endsWith(".ipa.tmp");
+                if (!isTmp && !file.endsWith(".ipa")) continue;
+                const size = fs.statSync(path.join(downloadsDir, file)).size;
+                // Newest wins, so a stale `.tmp` left by a killed download of
+                // the same app can't out-vote the one being written now.
+                if (isTmp) tmpSize = Math.max(tmpSize, size);
+                else finalSize = Math.max(finalSize, size);
               }
 
-              const fileExists = downloadFilePath !== null;
+              // Any movement in EITHER file is liveness, even when it buys no
+              // percentage points. The repack phase writes only the final
+              // `.ipa` while the `.tmp` sits at its full size — scoring that as
+              // "no progress" let the stall timer kill a download that was
+              // seconds from succeeding, and take its files with it.
+              const observedBytes = tmpSize + finalSize;
+              if (observedBytes > lastObservedBytes) {
+                lastObservedBytes = observedBytes;
+                resetStallTimer();
+              }
 
-              if (fileExists && downloadFilePath) {
-                const stats = fs.statSync(downloadFilePath);
-                const currentSize = stats.size;
-
+              const currentSize = Math.max(tmpSize, finalSize);
+              if (currentSize > 0) {
                 // Only report progress if file size has changed significantly (every 512KB or at completion)
                 // Using 512KB threshold to catch progress on faster downloads
                 const shouldReport = currentSize > lastReportedSize + 512 * 1024 || currentSize === expectedSizeBytes;
@@ -1014,7 +1039,6 @@ export async function downloadApp(
 
                   if (progress > lastProgress) {
                     lastProgress = progress;
-                    resetStallTimer(); // Reset stall timer on progress
 
                     // Call progress callback if provided (callback will handle logging)
                     if (options?.onProgress) {
@@ -1044,11 +1068,6 @@ export async function downloadApp(
               const chunk = data.toString();
               stdout += chunk;
               logger.log(`[ipatool] stdout: ${chunk.trim()}`);
-
-              // Log any authentication or purchase confirmation prompts for debugging
-              if (chunk.includes("password") || chunk.includes("authentication") || chunk.includes("purchase")) {
-                logger.log(`[ipatool] Authentication/Purchase prompt detected: ${chunk.trim()}`);
-              }
             });
           }
 
@@ -1083,6 +1102,20 @@ export async function downloadApp(
           child.on("close", async (code, signal) => {
             clearAllTimers();
             logger.log(`[ipatool] Download process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
+
+            // Land on 100%. The denominator is Apple's `fileSizeBytes`, which
+            // is the INSTALLED size, not the archive — Muse reports 111 MB and
+            // ships an 85 MB IPA — so the poller's last honest reading is
+            // whatever fraction the IPA happens to be of that (76%, there).
+            // The bar then just stops. ipatool exiting 0 is the only real
+            // completion signal we get, so use it.
+            if (code === 0 && lastProgress < 1) {
+              lastProgress = 1;
+              options?.onProgress?.(1);
+              if (!suppressHUD) {
+                showHUD(`Downloading ${appName || bundleId}... 100%`);
+              }
+            }
 
             // Only log full output in development or when there's an error
             if (process.env.NODE_ENV === "development" || code !== 0) {
@@ -1149,7 +1182,7 @@ export async function downloadApp(
                 }
 
                 // Clean up temp files before retrying to prevent "negative offset" errors
-                cleanupTempFilesByPattern(downloadsDir);
+                cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
 
                 await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
                 // Resolve with the retry result to properly propagate the Promise chain
@@ -1632,7 +1665,7 @@ export async function downloadApp(
         })
         .catch((processError) => {
           logger.error(`[ipatool] Failed to create secure process:`, processError);
-          cleanupTempFilesByPattern(downloadsDir);
+          cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
           reject(processError);
         });
     });

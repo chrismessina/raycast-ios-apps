@@ -68,13 +68,20 @@ export function cleanupTempFiles(): void {
 /**
  * Cleans up specific temporary files matching patterns (.partial, .ipa, *.tmp)
  * @param directory - Directory to search for temp files (optional, uses tempFiles if not provided)
+ * @param namePrefix - Only delete files starting with this prefix. Downloads share
+ *   one directory, so an unscoped sweep deletes whatever ANOTHER download is
+ *   currently writing — and since ipatool 2.6.0 every download has a live
+ *   `.ipa.tmp` for its whole network phase, which is exactly what this sweep
+ *   targets. Callers that know whose files they are should say so.
  */
-export function cleanupTempFilesByPattern(directory?: string): void {
+export function cleanupTempFilesByPattern(directory?: string, namePrefix?: string): void {
   if (directory) {
-    logger.log(`[TempFileManager] Cleaning up temp files by pattern in directory: ${directory}`);
+    logger.log(
+      `[TempFileManager] Cleaning up temp files by pattern in directory: ${directory}${namePrefix ? ` (prefix: ${namePrefix})` : ""}`,
+    );
 
     try {
-      const files = fs.readdirSync(directory);
+      const files = fs.readdirSync(directory).filter((file) => !namePrefix || file.startsWith(namePrefix));
       const tempPatterns = [".partial", ".tmp"];
       const ipaPartialPattern = /\.ipa\.partial$/;
 
