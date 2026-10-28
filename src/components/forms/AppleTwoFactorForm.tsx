@@ -6,9 +6,11 @@ import { loginToAppleId } from "../../utils/auth";
 
 interface AppleTwoFactorFormProps {
   onSubmit: (credentials: { code: string }) => void | Promise<void>;
+  /** The password just typed in the login form; without it, the saved one. */
+  credentials?: { email: string; password: string };
 }
 
-export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
+export function AppleTwoFactorForm({ onSubmit, credentials }: AppleTwoFactorFormProps) {
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | undefined>();
   const [isResending, setIsResending] = useState(false);
@@ -17,7 +19,9 @@ export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
   const lastSubmissionRef = useRef<number>(0);
 
   async function handleSubmit() {
-    if (isSubmitting) return;
+    // One sign-in at a time: a resend issues a new code, which can void the
+    // one being submitted.
+    if (isSubmitting || isResending) return;
 
     // Prevent rapid submissions
     const now = Date.now();
@@ -60,22 +64,20 @@ export function AppleTwoFactorForm({ onSubmit }: AppleTwoFactorFormProps) {
   }
 
   async function handleResend() {
-    if (isResending) return;
+    if (isResending || isSubmitting) return;
     try {
       setIsResending(true);
       // Indicate that we're requesting a new code
       await showToast({ style: Toast.Style.Animated, title: "Requesting new code..." });
       // Trigger ipatool login without a code to request a new 2FA code
-      await loginToAppleId();
+      await loginToAppleId(credentials?.email, credentials?.password);
       // If login unexpectedly succeeds without 2FA, inform the user
       await showToast({ style: Toast.Style.Success, title: "Authenticated", message: "You're already signed in" });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Treat auth prompts as a successful resend signal
-      if (
-        (err instanceof Error && (err.name === "Needs2FAError" || err.name === "NeedsLoginError")) ||
-        /two-factor|2fa|verification code/i.test(message)
-      ) {
+      // Apple asking for a code again is the resend. A NeedsLoginError is
+      // not: it means no password was sent, so no code went out.
+      if ((err instanceof Error && err.name === "Needs2FAError") || /two-factor|2fa|verification code/i.test(message)) {
         await showToast({
           style: Toast.Style.Success,
           title: "Code resent",

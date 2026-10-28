@@ -1,46 +1,60 @@
 import { logger } from "@chrismessina/raycast-logger";
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import { popToRoot as apiPopToRoot, useNavigation } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { AppleLoginForm } from "../components/forms/AppleLoginForm";
 import { AppleTwoFactorForm } from "../components/forms/AppleTwoFactorForm";
-import { getAppleIdFromStorage, loginToAppleId, storeAppleId, storePassword } from "../utils/auth";
+import { getAppleIdFromStorage, getPasswordFromStorage, loginToAppleId, saveCredentials } from "../utils/auth";
+
+export interface AppleCredentials {
+  email: string;
+  password: string;
+}
 
 export interface AuthNavigationHelpers {
   pushLoginForm: (onSuccess?: () => void) => Promise<void>;
-  push2FAForm: (onSuccess?: () => void) => void;
+  push2FAForm: (onSuccess?: () => void, credentials?: AppleCredentials) => void;
   popToRoot: () => void;
 }
 
 export function useAuthNavigation(): AuthNavigationHelpers {
   const { push, pop } = useNavigation();
+  const pushLoginFormRef = useRef<AuthNavigationHelpers["pushLoginForm"] | undefined>(undefined);
 
   const push2FAForm = useCallback(
-    (onSuccess?: () => void) => {
-      push(
-        <AppleTwoFactorForm
-          onSubmit={async ({ code }) => {
-            // For 2FA, we need to re-authenticate with the stored credentials plus the 2FA code
-            // The credentials should already be stored from the initial login attempt
-            try {
-              await loginToAppleId(undefined, undefined, code);
-            } catch (error) {
-              logger.error("[Auth] 2FA verification failed", error);
-              await showFailureToast(error, { title: "Verification failed" });
-              // Don't pop — keep form open so user can retry
-              return;
-            }
+    (onSuccess?: () => void, credentials?: AppleCredentials) => {
+      void (async () => {
+        // ipatool takes the code together with the password. With neither one
+        // in hand nor a saved one, ask for the password first; the login form
+        // comes back here with it.
+        if (!credentials && !(await getPasswordFromStorage())) {
+          await pushLoginFormRef.current?.(onSuccess);
+          return;
+        }
+        push(
+          <AppleTwoFactorForm
+            credentials={credentials}
+            onSubmit={async ({ code }) => {
+              try {
+                await loginToAppleId(credentials?.email, credentials?.password, code);
+              } catch (error) {
+                logger.error("[Auth] 2FA verification failed", error);
+                await showFailureToast(error, { title: "Verification failed" });
+                // Don't pop — keep form open so user can retry
+                return;
+              }
 
-            // Call success callback if provided
-            if (onSuccess) {
-              onSuccess();
-            }
+              // Call success callback if provided
+              if (onSuccess) {
+                onSuccess();
+              }
 
-            // Pop back to the previous screen
-            pop();
-          }}
-        />,
-      );
+              // Pop back to the previous screen
+              pop();
+            }}
+          />,
+        );
+      })();
     },
     [push, pop],
   );
@@ -52,13 +66,18 @@ export function useAuthNavigation(): AuthNavigationHelpers {
         <AppleLoginForm
           initialEmail={storedEmail}
           onSubmit={async ({ email, password }) => {
+            // Saved only once Apple has accepted the password (signed in, or
+            // asked for a code), so a typo never becomes the saved password.
+            const save = async () => {
+              try {
+                await saveCredentials(email, password);
+              } catch (error) {
+                logger.error("[Auth] Could not save the password to the Keychain", error);
+              }
+            };
             try {
-              // Always store credentials for a persistent, seamless experience
-              await storeAppleId(email);
-              await storePassword(password);
-
-              // Attempt login
               await loginToAppleId(email, password);
+              await save();
 
               // Call success callback if provided
               if (onSuccess) {
@@ -70,8 +89,19 @@ export function useAuthNavigation(): AuthNavigationHelpers {
             } catch (error) {
               // If 2FA is needed, push the 2FA form
               if (error instanceof Error && error.name === "Needs2FAError") {
-                // Credentials already stored earlier; proceed to 2FA form
-                push2FAForm(onSuccess);
+                await save();
+                // Hand the code form this password: nothing saves it, so
+                // the code form has no other way to get it. The code form
+                // pops only itself, which would land back on this login
+                // form; pop it too so success returns to where sign-in
+                // started.
+                push2FAForm(
+                  () => {
+                    pop();
+                    onSuccess?.();
+                  },
+                  { email, password },
+                );
               } else {
                 // Show error toast and keep form open for retry
                 logger.error("[Auth] Login form submission failed", error);
@@ -84,6 +114,7 @@ export function useAuthNavigation(): AuthNavigationHelpers {
     },
     [push, pop, push2FAForm],
   );
+  pushLoginFormRef.current = pushLoginForm;
 
   const popToRoot = useCallback(() => {
     apiPopToRoot();

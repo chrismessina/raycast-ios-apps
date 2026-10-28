@@ -21,7 +21,7 @@ const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";
 // with `invalid response`; 2.6.0 downloaded both. 2.6.0's "improved recovery
 // from App Store errors" is the fix, so the remedy really is an upgrade.
 // Newer builds are accepted as-is.
-const MINIMUM_IPATOOL_VERSION = "2.6.0";
+export const MINIMUM_IPATOOL_VERSION = "2.6.0";
 const DEFAULT_COMMAND_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_VALIDATION_TIMEOUT = 5000; // 5 seconds
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB max output size
@@ -176,7 +176,7 @@ async function runIpatoolValidation(options: IpatoolValidationOptions = {}): Pro
  * @param output The stdout/stderr from ipatool --version
  * @returns The version string or null if not found
  */
-function parseIpatoolVersion(output: string): string | null {
+export function parseIpatoolVersion(output: string): string | null {
   // ipatool outputs: "ipatool version 2.3.1"
   const match = output.match(/ipatool version\s+(\d+\.\d+\.\d+)/i);
   return match ? match[1] : null;
@@ -186,7 +186,7 @@ function parseIpatoolVersion(output: string): string | null {
  * Compares two dotted numeric version strings (e.g. "2.3.1").
  * @returns negative if a < b, 0 if equal, positive if a > b
  */
-function compareVersions(a: string, b: string): number {
+export function compareVersions(a: string, b: string): number {
   const partsA = a.split(".").map(Number);
   const partsB = b.split(".").map(Number);
   const length = Math.max(partsA.length, partsB.length);
@@ -766,9 +766,18 @@ export function createSecureIpatoolProcess(
           logger.log(`[ipatool] Process timeout after ${options.timeout}ms, killing process`);
           child.kill("SIGTERM");
 
-          // Force kill after additional grace period
+          // Force kill after additional grace period.
+          //
+          // `child.killed` only records that a signal was DELIVERED, not that
+          // the process exited — a child that ignores or slowly handles SIGTERM
+          // sets it true while still running and writing. Track real exit.
+          let exited = false;
+          child.once("exit", () => {
+            exited = true;
+          });
           setTimeout(() => {
-            if (!child.killed) {
+            if (!exited) {
+              logger.log(`[ipatool] Process did not exit after SIGTERM, escalating to SIGKILL`);
               child.kill("SIGKILL");
             }
           }, 5000);

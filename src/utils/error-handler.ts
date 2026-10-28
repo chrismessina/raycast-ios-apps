@@ -267,9 +267,14 @@ export async function handleAuthError(
   const userMessage = "Authentication failed";
   const toastTitle = "Authentication Error";
 
-  // Invalidate stored credentials when we detect credential errors
-  // This ensures the user will be prompted to sign in again on next download attempt
-  if (isCredentialError) {
+  // Delete the saved password only when Apple rejected it. An expired session
+  // or a missing sign-in also arrives as NeedsLoginError, and the saved
+  // password is exactly what signs back in from those.
+  const isPasswordRejected =
+    lowerErrorMessage.includes("authentication failed") ||
+    lowerErrorMessage.includes("invalid credentials") ||
+    lowerErrorMessage.includes("login failed");
+  if (isPasswordRejected) {
     logger.log("[authentication] Invalidating stored credentials due to auth error");
     await invalidateAuthentication();
   }

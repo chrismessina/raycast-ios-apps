@@ -39,6 +39,21 @@
       "mode": "view"
     },
     {
+      "name": "doctor",
+      "title": "Run Doctor",
+      "subtitle": "iOS Apps",
+      "description": "Check ipatool and your Apple ID sign-in, update ipatool, and finish a verification Apple is waiting on",
+      "mode": "view",
+      "keywords": [
+        "doctor",
+        "diagnose",
+        "health",
+        "2fa",
+        "verification",
+        "update"
+      ]
+    },
+    {
       "name": "logout",
       "title": "Logout",
       "subtitle": "Apple ID",

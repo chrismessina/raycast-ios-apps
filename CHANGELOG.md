@@ -10,4 +10,5 @@
 - Download full-resolution screenshots and app icons, organised per platform
 - Favorites with Markdown and CSV export, plus download history and recent searches
 - Five Raycast AI tools: search, details, current version, download, and screenshot download
+- Run Doctor: checks ipatool and your Apple ID, updates a Homebrew ipatool in place, and takes the verification code Apple sends when it expires a session
 - Requires `ipatool` 2.6.0 or greater

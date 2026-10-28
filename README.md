@@ -142,12 +142,12 @@ This extension does not collect or transmit personal data. It talks only to Appl
 
 **The extension does store some credentials — here is exactly what, and where:**
 
-| What                | Where                                                   | Notes                                                                                        |
-| ------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Apple ID            | Raycast `LocalStorage`, key `appleId`                   | Not encrypted. It is an identifier, not a secret.                                            |
-| Password            | Raycast Keychain API, service `ios-apps-apple-password` | Only if that API is available; otherwise the extension logs a warning and does not store it. |
-| Two-factor codes    | Nowhere                                                 | Never persisted.                                                                             |
-| `ipatool`'s session | System Keychain, item `ipatool-auth.service`            | Created and owned by `ipatool` — this extension neither creates nor modifies it.             |
+| What                | Where                                                   | Notes                                                                                                  |
+| ------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Apple ID            | Raycast `LocalStorage`, key `appleId`                   | Not encrypted. It is an identifier, not a secret.                                                      |
+| Password            | macOS login Keychain, service `ios-apps-apple-password` | Saved once Apple accepts it, through `/usr/bin/security`; passed to it over stdin, not as an argument. |
+| Two-factor codes    | Nowhere                                                 | Never persisted.                                                                                       |
+| `ipatool`'s session | System Keychain, item `ipatool-auth.service`            | Created and owned by `ipatool` — this extension neither creates nor modifies it.                       |
 
 Nothing is collected or transmitted anywhere; the only network destination is Apple. The **Logout** command attempts `ipatool auth revoke`, then clears the stored Apple ID and deletes the password entry — and clears them even if the revoke fails.
 
@@ -167,7 +167,7 @@ The Keychain item governing `ipatool`'s session is created and owned by `ipatool
 
 _Allow all applications to access this item_ also works and is **not recommended.**
 
-The extension may store your Apple ID password in a separate Keychain entry, `ios-apps-apple-password`. It is independent of `ipatool`'s item and does not alter its ACL. There is no programmatic way to set a Keychain ACL — macOS owns that, by design.
+The extension stores your Apple ID password in a separate Keychain entry, `ios-apps-apple-password`, created by `/usr/bin/security`, so reading it back does not prompt. It is independent of `ipatool`'s item and does not alter its ACL.
 
 ---
 

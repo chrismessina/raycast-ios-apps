@@ -1,5 +1,6 @@
+import { execFile, spawn } from "node:child_process";
 import { logger } from "@chrismessina/raycast-logger";
-import * as Raycast from "@raycast/api";
+import { LocalStorage } from "@raycast/api";
 import {
   AppleAuthGateError,
   AppleEmptyResponseError,
@@ -23,19 +24,79 @@ export {
   NotYetReleasedError,
 };
 
-const { LocalStorage } = Raycast;
-
-// Narrow, optional typing for Raycast's Keychain API to avoid 'any'
-type KeychainAPI = {
-  getPassword?: (options: { service: string; account: string }) => Promise<string | undefined>;
-  setPassword?: (options: { service: string; account: string; password: string }) => Promise<void>;
-  deletePassword?: (options: { service: string; account: string }) => Promise<void>;
-};
-
-const Keychain: KeychainAPI = ((Raycast as unknown as { Keychain?: KeychainAPI }).Keychain ?? {}) as KeychainAPI;
-
-// Service name for secure keychain storage
+// The password lives in the macOS login Keychain. @raycast/api has no Keychain
+// API, so this goes through /usr/bin/security, which also makes `security`
+// the item's trusted app: later reads do not prompt.
+const SECURITY = "/usr/bin/security";
 const PASSWORD_SERVICE = "ios-apps-apple-password";
+/** `security` exit status for "no such item". */
+const ITEM_NOT_FOUND = 44;
+
+function runSecurity(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    execFile(SECURITY, args, { timeout: 10_000 }, (error, stdout, stderr) => {
+      const code = error ? (typeof error.code === "number" ? error.code : -1) : 0;
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+async function readKeychainPassword(account: string): Promise<string | undefined> {
+  const { code, stdout, stderr } = await runSecurity([
+    "find-generic-password",
+    "-s",
+    PASSWORD_SERVICE,
+    "-a",
+    account,
+    "-w",
+  ]);
+  if (code === ITEM_NOT_FOUND) return undefined;
+  if (code !== 0) throw new Error(`security find-generic-password exited ${code}: ${stderr.trim()}`);
+  const hex = stdout.trim();
+  // Written hex-encoded (see writeKeychainPassword); anything else is not ours.
+  if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) return undefined;
+  return Buffer.from(hex, "hex").toString("utf8");
+}
+
+/**
+ * Writes the password over stdin, never argv, so it does not show in `ps`.
+ * A trailing `-w` makes `security` prompt twice (enter, retype). Detached, so
+ * it has no controlling terminal and reads both answers from the pipe.
+ *
+ * Stored as UTF-8 hex: `security -w` prints any non-ASCII password back as hex
+ * and an ASCII one as-is, so reading a raw password back would be ambiguous.
+ */
+function writeKeychainPassword(account: string, password: string): Promise<void> {
+  const hex = Buffer.from(password, "utf8").toString("hex");
+  return new Promise((resolve, reject) => {
+    const child = spawn(SECURITY, ["add-generic-password", "-U", "-s", PASSWORD_SERVICE, "-a", account, "-w"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    // A locked Keychain can leave `security` waiting on a system dialog.
+    const timer = setTimeout(() => child.kill(), 10_000);
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.stdin.on("error", () => {});
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`security add-generic-password exited ${code}: ${stderr.trim()}`));
+    });
+    child.stdin.end(`${hex}\n${hex}\n`);
+  });
+}
+
+async function deleteKeychainPassword(account: string): Promise<void> {
+  const { code, stderr } = await runSecurity(["delete-generic-password", "-s", PASSWORD_SERVICE, "-a", account]);
+  if (code !== 0 && code !== ITEM_NOT_FOUND) {
+    throw new Error(`security delete-generic-password exited ${code}: ${stderr.trim()}`);
+  }
+}
 
 /**
  * Securely retrieve Apple ID from local storage
@@ -53,11 +114,7 @@ export async function getPasswordFromStorage(): Promise<string | undefined> {
     if (!appleId) {
       return undefined;
     }
-    const pwd =
-      typeof Keychain.getPassword === "function"
-        ? await Keychain.getPassword({ service: PASSWORD_SERVICE, account: appleId })
-        : undefined;
-    return pwd ?? undefined;
+    return await readKeychainPassword(appleId);
   } catch (e) {
     logger.error("Failed to read password from secure storage", { error: e instanceof Error ? e.message : String(e) });
     return undefined;
@@ -65,25 +122,24 @@ export async function getPasswordFromStorage(): Promise<string | undefined> {
 }
 
 /**
- * Store Apple ID in local storage
+ * Saves the Apple ID and its password together, keyed by `email` itself rather
+ * than whatever `appleId` holds by the time the write runs. Signing in as a
+ * different Apple ID deletes the previous one's password, which Logout could
+ * otherwise never find again.
  */
-export async function storeAppleId(appleId: string): Promise<void> {
-  await LocalStorage.setItem("appleId", appleId);
-}
-
-/**
- * Store password in storage
- */
-export async function storePassword(password: string): Promise<void> {
-  const appleId = await LocalStorage.getItem<string>("appleId");
-  if (!appleId) {
-    throw new Error("Apple ID must be stored before saving password");
+export async function saveCredentials(email: string, password: string): Promise<void> {
+  const previous = await LocalStorage.getItem<string>("appleId");
+  await LocalStorage.setItem("appleId", email);
+  if (previous && previous !== email) {
+    try {
+      await deleteKeychainPassword(previous);
+    } catch (error) {
+      logger.error("Failed to delete the previous Apple ID's password", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  if (typeof Keychain.setPassword !== "function") {
-    logger.warn("Keychain.setPassword is not available; skipping password storage");
-    return;
-  }
-  await Keychain.setPassword({ service: PASSWORD_SERVICE, account: appleId, password });
+  await writeKeychainPassword(email, password);
 }
 
 /**
@@ -91,8 +147,13 @@ export async function storePassword(password: string): Promise<void> {
  */
 export async function getStoredCredentials(): Promise<{ email?: string; password?: string }> {
   const email = await getAppleIdFromStorage();
-  const password = await getPasswordFromStorage();
-  return { email, password };
+  if (!email) return {};
+  try {
+    return { email, password: await readKeychainPassword(email) };
+  } catch (e) {
+    logger.error("Failed to read password from secure storage", { error: e instanceof Error ? e.message : String(e) });
+    return { email };
+  }
 }
 
 /**
@@ -136,8 +197,8 @@ export async function clearStoredCredentials(): Promise<void> {
   const appleId = await LocalStorage.getItem<string>("appleId");
   // Best-effort cleanup of secure storage for current account
   try {
-    if (appleId && typeof Keychain.deletePassword === "function") {
-      await Keychain.deletePassword({ service: PASSWORD_SERVICE, account: appleId });
+    if (appleId) {
+      await deleteKeychainPassword(appleId);
     }
   } catch (e) {
     logger.error("Failed to delete password from secure storage", {
@@ -194,8 +255,9 @@ export async function loginToAppleId(appleId?: string, password?: string, twoFac
 
   // Step 1: Resolve credentials
   logger.step(1, "Resolving credentials");
-  const email = appleId || (await getAppleIdFromStorage());
-  const pass = password || (await getPasswordFromStorage());
+  const stored = appleId && password ? {} : await getStoredCredentials();
+  const email = appleId || stored.email;
+  const pass = password || (email === stored.email ? stored.password : undefined);
 
   if (!email || !pass) {
     done({ result: "missing_credentials" });
