@@ -15,7 +15,15 @@
       "title": "Search iOS Apps",
       "subtitle": "iOS App Search",
       "description": "Search for iOS apps on the App Store",
-      "mode": "view"
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "query",
+          "placeholder": "Query",
+          "type": "text",
+          "required": false
+        }
+      ]
     },
     {
       "name": "favorites",

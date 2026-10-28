@@ -16,6 +16,7 @@ import {
 } from "../utils/auth";
 import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAuthError, handleDownloadError } from "../utils/error-handler";
+import { DownloadCanceledError } from "../utils/errors";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { IpatoolSetupError } from "../utils/ipatool-validator";
 import { resolveDownloadPlatform } from "../utils/itunes-api";
@@ -145,6 +146,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     setCurrentDownload(name);
 
     let progressToast: Toast | undefined;
+    const cancel = new AbortController();
 
     // Single closure used by every "resume after auth" callback below. Capturing
     // the full call shape here (including expectedSizeBytes + appDetails) is the
@@ -301,6 +303,11 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             style: Toast.Style.Animated,
             title: `Downloading ${name}...`,
             message: "0%",
+            primaryAction: {
+              title: "Cancel Download",
+              shortcut: { modifiers: ["cmd"], key: "." },
+              onAction: () => cancel.abort(),
+            },
           });
         } else {
           logger.log(`[useAppDownload] Showing HUD: "Downloading ${name}..."`);
@@ -310,6 +317,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
       const filePath = await downloadApp(bundleId, name, version, price, 0, undefined, {
         platform: resolvedPlatform,
+        signal: cancel.signal,
         suppressHUD: Boolean(authNavigation),
         onProgress: progressToast
           ? (progress: number) => {
@@ -321,6 +329,9 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             }
           : undefined,
         expectedSizeBytes,
+      }).finally(() => {
+        // Every outcome after this is final; none may keep offering "Cancel".
+        if (progressToast) progressToast.primaryAction = undefined;
       });
 
       if (filePath) {
@@ -430,6 +441,16 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         return undefined;
       }
     } catch (error) {
+      if (error instanceof DownloadCanceledError) {
+        logger.log(`[useAppDownload] Download of ${name} (${bundleId}) canceled by the user.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Download Canceled";
+          progressToast.message = name;
+        }
+        return null;
+      }
+
       // Another Raycast command is already downloading this app. Not a failure
       // of this one — say what is happening instead of "Download Failed".
       if (error instanceof DownloadInProgressError) {

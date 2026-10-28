@@ -96,3 +96,11 @@ export class AppleAuthGateError extends Error {
     this.name = "AppleAuthGateError";
   }
 }
+
+/** The user canceled a download from its progress toast. Not a failure. */
+export class DownloadCanceledError extends Error {
+  constructor(message = "Download canceled") {
+    super(message);
+    this.name = "DownloadCanceledError";
+  }
+}

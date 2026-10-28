@@ -39,6 +39,7 @@ export function GridSearchView({
       columns={5}
       fit={Grid.Fit.Fill}
       aspectRatio="1"
+      searchText={searchText}
       onSearchTextChange={onSearchTextChange}
       searchBarAccessory={searchBarAccessory}
     >

@@ -1,6 +1,6 @@
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
-import { Action, ActionPanel, Icon, Keyboard, List, LocalStorage } from "@raycast/api";
+import { Action, ActionPanel, Icon, Keyboard, LaunchProps, List, LocalStorage } from "@raycast/api";
 import { AppListItem } from "./components/app-list-item";
 import { useAppDownload, useAppSearch, useFavoriteApps } from "./hooks";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
@@ -28,7 +28,7 @@ const PLATFORM_OPTIONS: { title: string; value: string; icon: Icon }[] = [
 ];
 const DEFAULT_PLATFORM_ENTITY = PLATFORM_OPTIONS[0].value;
 
-export default function Search() {
+export default function Search(props: LaunchProps<{ arguments: Arguments.Search }>) {
   // View state management with persistence
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [isViewModeLoaded, setIsViewModeLoaded] = useState(false);
@@ -85,7 +85,7 @@ export default function Search() {
     recentSearches,
     clearRecentSearches,
     removeRecentSearch,
-  } = useAppSearch("", 500, platformEntity);
+  } = useAppSearch(props.arguments.query?.trim() ?? "", 500, platformEntity);
 
   // List.Dropdown and Grid.Dropdown are the same component, so one element
   // serves both view modes.
@@ -127,6 +127,7 @@ export default function Search() {
   if (!searchText) {
     return (
       <List
+        searchText={searchText}
         onSearchTextChange={setSearchText}
         isLoading={isLoading || !isViewModeLoaded}
         searchBarAccessory={platformDropdown}
@@ -175,6 +176,7 @@ export default function Search() {
   return (
     <List
       isLoading={isLoading || !isViewModeLoaded}
+      searchText={searchText}
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by name, App Store URL, or app ID..."
       throttle

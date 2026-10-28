@@ -27,7 +27,7 @@ import {
   type DownloadLock,
 } from "./utils/download-lock";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
-import { TWO_FACTOR_PROMPT_MESSAGE } from "./utils/errors";
+import { DownloadCanceledError, TWO_FACTOR_PROMPT_MESSAGE } from "./utils/errors";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import {
   analyzeIpatoolError,
@@ -442,7 +442,7 @@ const PURCHASE_TIMEOUT_MS = 60_000;
 export async function purchaseApp(
   bundleId: string,
   appName?: string,
-  options?: { suppressHUD?: boolean; platform?: DownloadPlatform },
+  options?: { suppressHUD?: boolean; platform?: DownloadPlatform; signal?: AbortSignal },
 ): Promise<PurchaseResult> {
   const displayName = appName || bundleId;
   const done = logger.time(`purchaseApp:${displayName}`);
@@ -485,23 +485,33 @@ export async function purchaseApp(
     // keeps refreshing while it waits, so without a deadline every other
     // command stays locked out of this app.
     let killTimer: NodeJS.Timeout | undefined;
-    const deadline = setTimeout(() => {
-      logger.warn(`[ipatool] Purchase for ${displayName} timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`);
-      // Matches the timeout pattern in ipatool-error-patterns.ts.
-      err += `\npurchase timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`;
+    const stop = () => {
+      if (killTimer) return;
       // Armed before signaling: kill() can emit `error` synchronously, and
       // that handler must find this timer to clear it.
       killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
       child.kill("SIGTERM");
+    };
+    const deadline = setTimeout(() => {
+      logger.warn(`[ipatool] Purchase for ${displayName} timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`);
+      // Matches the timeout pattern in ipatool-error-patterns.ts.
+      err += `\npurchase timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`;
+      stop();
     }, PURCHASE_TIMEOUT_MS);
-    child.on("error", (e) => {
+    // A canceled download stops its license request too; the caller reports
+    // the cancel, so the output gathered so far is never classified.
+    options?.signal?.addEventListener("abort", stop, { once: true });
+    const cleanUp = () => {
       clearTimeout(deadline);
       clearTimeout(killTimer);
+      options?.signal?.removeEventListener("abort", stop);
+    };
+    child.on("error", (e) => {
+      cleanUp();
       reject(e);
     });
     child.on("close", () => {
-      clearTimeout(deadline);
-      clearTimeout(killTimer);
+      cleanUp();
       // Always resolve with stdout so we can parse errors from ipatool's JSON output
       // (ipatool writes structured error info to stdout, not stderr)
       resolve(out + "\n" + err);
@@ -948,6 +958,8 @@ export async function downloadApp(
     expectedSizeBytes?: number;
     /** Defaults to iPhone, which is what every caller assumed before Mac support. */
     platform?: DownloadPlatform;
+    /** Aborting stops ipatool and rejects with `DownloadCanceledError`. */
+    signal?: AbortSignal;
   },
 ): Promise<string | null | undefined> {
   try {
@@ -992,6 +1004,9 @@ export async function downloadApp(
 
     // Ensure authenticated before download using centralized flow
     const isAuthenticated = await ensureAuthenticated();
+    // Checked after the preflight awaits so a cancel during them is reported
+    // as one, not as whatever the check went on to return.
+    if (options?.signal?.aborted) throw new DownloadCanceledError();
     if (!isAuthenticated) {
       return null;
     }
@@ -1047,7 +1062,7 @@ export async function downloadApp(
     // acquiring and the `try` — a HUD, say — could otherwise reject and strand
     // the lock.
     try {
-      return await runDownloadAttempts(
+      const result = await runDownloadAttempts(
         {
           bundleId,
           appName,
@@ -1058,6 +1073,7 @@ export async function downloadApp(
           layout,
           suppressHUD,
           onProgress: options?.onProgress,
+          signal: options?.signal,
           expectedSizeBytes,
           maxDownloadTimeout,
           maxStallTimeout,
@@ -1066,16 +1082,33 @@ export async function downloadApp(
         retryCount,
         retryDelay,
       );
+      // `null` means a later sign-in check failed; after a cancel, that is the cancel.
+      if (result === null && options?.signal?.aborted) throw new DownloadCanceledError();
+      return result;
     } finally {
       lock.release();
     }
   } catch (error) {
+    // A canceled download reports the cancel, whatever failed on the way out:
+    // a preflight check, a license request it interrupted, or a sign-in error
+    // that would otherwise open the login form and restart the download.
+    if (options?.signal?.aborted && !(error instanceof DownloadCanceledError)) {
+      logger.log(
+        `[ipatool] Download of ${bundleId} canceled; dropping: ${error instanceof Error ? error.message : error}`,
+      );
+      throw new DownloadCanceledError();
+    }
+
     // Another Raycast command already owns this bundle's download. This is a
     // normal collision, not a failure: say so plainly and do not log a stack.
     // The callers say so in their own voice (a toast, an AI tool result); a HUD
     // here only duplicated that, and a rejecting one replaced the typed error.
     if (error instanceof DownloadInProgressError) {
       logger.log(`[ipatool] Download refused: ${bundleId} is already in progress elsewhere`);
+      throw error;
+    }
+    if (error instanceof DownloadCanceledError) {
+      logger.log(`[ipatool] Download of ${bundleId} canceled by the user`);
       throw error;
     }
 
@@ -1106,6 +1139,7 @@ interface DownloadContext {
   layout: DownloadLayout;
   suppressHUD: boolean;
   onProgress?: (progress: number) => void;
+  signal?: AbortSignal;
   expectedSizeBytes?: number;
   maxDownloadTimeout: number;
   maxStallTimeout: number;
@@ -1185,6 +1219,9 @@ async function runDownloadAttempts(
   };
 
   for (let isFirst = true; ; isFirst = false) {
+    // Checked between attempts too: a cancel can land during a retry backoff
+    // or an automatic license purchase, neither of which has a child to kill.
+    if (ctx.signal?.aborted) throw new DownloadCanceledError();
     // A retry can follow a long backoff, and every retry used to re-enter
     // `downloadApp` and re-check the session; keep that.
     if (!isFirst && !(await ensureAuthenticated())) return null;
@@ -1194,7 +1231,15 @@ async function runDownloadAttempts(
     if (outcome.kind === "failed") throw outcome.error;
 
     if (outcome.waitMs > 0) {
-      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, outcome.waitMs));
+      await new Promise<void>((resolveTimeout) => {
+        const timer = setTimeout(done, outcome.waitMs);
+        function done() {
+          clearTimeout(timer);
+          ctx.signal?.removeEventListener("abort", done);
+          resolveTimeout();
+        }
+        ctx.signal?.addEventListener("abort", done, { once: true });
+      });
     }
     policy = {
       attempt: outcome.nextAttempt,
@@ -1309,7 +1354,23 @@ function watchDownload(child: ChildProcess, ctx: DownloadContext, operationDir: 
       settled = true;
       clearTimeout(stallTimer);
       clearInterval(progressCheckInterval);
+      ctx.signal?.removeEventListener("abort", onCancel);
       resolve(run);
+    };
+
+    // The `close` that follows is still what ends the attempt;
+    // `interpretDownload` sees the aborted signal and reports the cancel.
+    const onCancel = () => {
+      if (settled) return;
+      logger.log(`[ipatool] Canceling download of ${appName || bundleId}`);
+      clearTimeout(stallTimer);
+      clearInterval(progressCheckInterval);
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (settled) return;
+        child.kill("SIGKILL");
+        setTimeout(() => finish({ type: "close", code: null, signal: "SIGKILL", stdout, stderr, stalled }), 2000);
+      }, 5000);
     };
 
     const onStall = () => {
@@ -1473,6 +1534,10 @@ function watchDownload(child: ChildProcess, ctx: DownloadContext, operationDir: 
     child.on("error", (error) => {
       finish({ type: "error", error, stdout, stderr });
     });
+
+    // Last, so `onCancel` never runs before the interval it clears exists.
+    if (ctx.signal?.aborted) onCancel();
+    else ctx.signal?.addEventListener("abort", onCancel, { once: true });
   });
 }
 
@@ -1489,6 +1554,10 @@ async function interpretDownload(
   const { bundleId, appName, appVersion, price, platform, layout } = ctx;
   const { attempt, retryDelay } = policy;
   const hud = hudFor(ctx.suppressHUD);
+
+  // Before anything else: a canceled run neither retries nor publishes, even
+  // if ipatool happened to finish as the cancel arrived.
+  if (ctx.signal?.aborted) return { kind: "failed", error: new DownloadCanceledError() };
 
   if (run.type === "error") {
     const { error } = run;
@@ -1686,7 +1755,11 @@ async function interpretDownload(
         logger.log(`[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`);
 
         try {
-          const purchaseResult = await purchaseApp(bundleId, appName, { suppressHUD: ctx.suppressHUD, platform });
+          const purchaseResult = await purchaseApp(bundleId, appName, {
+            suppressHUD: ctx.suppressHUD,
+            platform,
+            signal: ctx.signal,
+          });
 
           if (purchaseResult.success) {
             logger.log(`[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`);

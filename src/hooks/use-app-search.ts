@@ -189,6 +189,8 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500, entity?: 
       setApps([]);
       setError(null);
       setTotalResults(0);
+      // The invalidated request skips its own `finally`, so it cannot clear this.
+      setIsLoading(false);
     }
 
     // Cleanup function to cancel any pending debounced calls
