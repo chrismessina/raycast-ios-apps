@@ -35,7 +35,7 @@ export function GridSearchView({
     <Grid
       isLoading={isLoading}
       searchBarPlaceholder="Search for iOS apps..."
-      navigationTitle="Search iOS Apps"
+      navigationTitle="Search App Store"
       columns={5}
       fit={Grid.Fit.Fill}
       aspectRatio="1"

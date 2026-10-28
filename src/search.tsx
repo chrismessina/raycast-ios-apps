@@ -180,7 +180,7 @@ export default function Search(props: LaunchProps<{ arguments: Arguments.Search 
       onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search by name, App Store URL, or app ID..."
       throttle
-      navigationTitle="Search iOS Apps"
+      navigationTitle="Search App Store"
       searchBarAccessory={platformDropdown}
     >
       {/* Handle error state */}

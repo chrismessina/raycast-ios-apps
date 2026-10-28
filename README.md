@@ -53,7 +53,7 @@ brew install ipatool
 
 ## Quick Start
 
-1. Open Raycast and search for **"Search iOS Apps"**
+1. Open Raycast and search for **"Search App Store"**
 2. Type an app name — or paste an App Store URL, bundle ID, or numeric app ID
 3. Select an app to see full details, screenshots, and version history
 4. To download, sign in with your Apple ID when prompted — the login and two-factor forms both run inside Raycast
@@ -68,7 +68,7 @@ brew install ipatool
 
 | Command             | Mode      | Description                                                                      |
 | ------------------- | --------- | -------------------------------------------------------------------------------- |
-| Search iOS Apps     | `view`    | Search the App Store; recent searches are tracked automatically                  |
+| Search App Store    | `view`    | Search the App Store; recent searches are tracked automatically                  |
 | View Purchased Apps | `view`    | Everything this Apple ID owns, paged as you scroll and sortable by purchase date |
 | View Favorites      | `view`    | Manage starred apps and export them to Markdown or CSV                           |
 | Download History    | `view`    | Browse past downloads with sorting, filtering, and re-download                   |
