@@ -9,13 +9,16 @@ import {
   BuiltInAppError,
   clearAuthenticationCache,
   ensureAuthenticated,
+  getPasswordFromStorage,
   Needs2FAError,
   NeedsLoginError,
   NotYetReleasedError,
 } from "../utils/auth";
+import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAuthError, handleDownloadError } from "../utils/error-handler";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { IpatoolSetupError } from "../utils/ipatool-validator";
+import { resolveDownloadPlatform } from "../utils/itunes-api";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
 import { useDownloadHistory } from "./use-download-history";
 
@@ -56,6 +59,7 @@ const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> 
   apple_empty_response: APPLE_EMPTY_RESPONSE_TITLE,
   regional_restriction: "Region Restricted",
   account_restriction: "Account Restricted",
+  purchase_refused: "License Refused",
 };
 
 /**
@@ -90,6 +94,27 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
   ): Promise<string | null | undefined> => {
     // Generate or reuse an operation ID for this logical download flow
     const operationId = opId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Mac App Store titles download a `.pkg` through a different ipatool
+    // pipeline, so this choice decides which file layout the poller watches and
+    // which name the collision check looks for.
+    //
+    // `undefined` means UNKNOWN, not iOS (see `AppDetails.platform`). Search
+    // shipped a Mac platform filter before Mac downloads worked, so a favorite
+    // saved then can be a Mac title with no platform recorded — and
+    // `withoutCachedITunesData` strips the iTunes `kind` that would settle it.
+    // Downloading such a record as iOS polls for `.ipa` temps that never
+    // appear and asks ipatool for a binary that does not exist, so resolve it
+    // before committing to a layout. The lookup costs one request and only
+    // happens for records that predate platform tracking.
+    let platform = appDetails?.platform;
+    if (!platform) {
+      logger.log(`[useAppDownload] Platform unknown for ${bundleId}; resolving before download`);
+      platform = await resolveDownloadPlatform(bundleId);
+    }
+    // Still unknown means the lookup itself failed. iPhone is the historical
+    // behavior and the overwhelmingly likely answer; it is a fallback, not a
+    // fact, and it stays out of any record we persist.
+    const resolvedPlatform = platform ?? "iphone";
 
     // Concurrency gate: block other requests while authenticating or downloading
     if (globalDownloadState.activeOpId && globalDownloadState.activeOpId !== operationId) {
@@ -119,7 +144,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     setIsLoading(true);
     setCurrentDownload(name);
 
-    let releaseLock = true;
     let progressToast: Toast | undefined;
 
     // Single closure used by every "resume after auth" callback below. Capturing
@@ -196,8 +220,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           );
 
           if (authNavigation) {
-            // Keep the global lock while we wait for the inline auth flow to complete
-            releaseLock = false;
             if (error instanceof NeedsLoginError) {
               logger.log(`[useAppDownload] Pushing Login form for ${name} (${bundleId})`);
               authNavigation.pushLoginForm?.(async () => {
@@ -256,7 +278,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       // Check for an existing IPA in the downloads directory and prompt for
       // overwrite BEFORE showing any progress UI. If the user cancels here, we
       // return early without ever pretending a download started.
-      const existing = await checkForExistingDownload(bundleId, name, version);
+      const existing = await checkForExistingDownload(bundleId, name, version, resolvedPlatform);
       if (existing.kind === "skipped") {
         logger.log(`[useAppDownload] User skipped download for ${name} (${bundleId}); existing file kept.`);
         if (showHudMessages) {
@@ -287,6 +309,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       }
 
       const filePath = await downloadApp(bundleId, name, version, price, 0, undefined, {
+        platform: resolvedPlatform,
         suppressHUD: Boolean(authNavigation),
         onProgress: progressToast
           ? (progress: number) => {
@@ -407,6 +430,20 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         return undefined;
       }
     } catch (error) {
+      // Another Raycast command is already downloading this app. Not a failure
+      // of this one — say what is happening instead of "Download Failed".
+      if (error instanceof DownloadInProgressError) {
+        logger.log(`[useAppDownload] ${name} (${bundleId}) is already downloading in another command.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Already Downloading";
+          progressToast.message = `${name} is downloading in another Raycast command.`;
+        } else if (showHudMessages && !authNavigation) {
+          await showHUD(`${name} is already downloading`);
+        }
+        return null;
+      }
+
       // Pre-release / Coming Soon caught from ipatool. Typed error carries the
       // classification across the boundary so we don't have to re-parse a
       // wrapped string. Surface a clean "Not Released Yet" toast and stop —
@@ -527,10 +564,20 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         );
 
         if (authNavigation) {
-          // Keep the lock while waiting for inline auth flow
-          releaseLock = false;
+          // The code form signs in with the STORED password plus the code.
+          // With no stored password (signed in from a terminal, say) it can
+          // only fail, so ask for the password instead; that sign-in triggers
+          // a fresh code and pushes its own code form.
+          const needsPassword = error instanceof NeedsLoginError || !(await getPasswordFromStorage());
+          // The "Downloading…" toast would otherwise keep spinning behind the
+          // form as if the download were still running.
+          if (progressToast) {
+            progressToast.style = Toast.Style.Failure;
+            progressToast.title = needsPassword ? "Sign In Required" : "Verification Code Needed";
+            progressToast.message = needsPassword ? `Sign in to download ${name}` : error.message;
+          }
           // Let the form flow handle authentication
-          if (error instanceof NeedsLoginError) {
+          if (needsPassword) {
             logger.log(`[useAppDownload] Pushing Login form (catch) for ${name} (${bundleId})`);
             authNavigation.pushLoginForm?.(async () => {
               // After successful login, resume download
@@ -551,7 +598,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 }
               }
             });
-          } else if (error instanceof Needs2FAError) {
+          } else {
             logger.log(`[useAppDownload] Pushing 2FA form (catch) for ${name} (${bundleId})`);
             authNavigation.push2FAForm?.(async () => {
               // After successful 2FA, resume download
@@ -613,10 +660,6 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         logger.log(
           `[useAppDownload] Non-specific auth error detected. Routing via handleAuthError with potential form navigation.`,
         );
-        // Keep the global lock while waiting for inline auth flow via handler
-        if (authNavigation) {
-          releaseLock = false;
-        }
         await handleAuthError(
           new Error(errorAnalysis.userMessage),
           false,
@@ -643,8 +686,12 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       return undefined;
     } finally {
       logger.log(`[useAppDownload] Cleaning up global/local download state for ${name} (${bundleId})`);
-      // Release the global lock only if this operation owns it and we're not waiting on auth UI
-      if (globalDownloadState.activeOpId === operationId && releaseLock) {
+      // Released even while a sign-in form is open. Holding it for the form
+      // stranded it whenever the form was dismissed — nothing on Cancel or Back
+      // calls back here — and every later download in this command then
+      // returned silently at the concurrency gate. Resuming after sign-in
+      // re-enters with the same operation ID and simply acquires it again.
+      if (globalDownloadState.activeOpId === operationId) {
         globalDownloadState.isAuthenticating = false;
         globalDownloadState.isDownloading = false;
         globalDownloadState.currentApp = null;

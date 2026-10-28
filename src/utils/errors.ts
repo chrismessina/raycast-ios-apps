@@ -16,6 +16,15 @@ export class NeedsLoginError extends Error {
   }
 }
 
+/**
+ * What a `Needs2FAError` says when Apple has ALREADY sent a code — the case
+ * where ipatool's own silent re-login was answered with a 2FA prompt. Kept free
+ * of "authentication required", which `handleAuthError` reads as bad
+ * credentials and answers by deleting the stored password the code needs.
+ */
+export const TWO_FACTOR_PROMPT_MESSAGE =
+  "Apple sent a verification code to your devices. Enter it to finish signing in.";
+
 export class Needs2FAError extends Error {
   constructor(message: string) {
     super(message);

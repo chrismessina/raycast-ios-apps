@@ -3,6 +3,7 @@ import { logger } from "@chrismessina/raycast-logger";
 import { showFailureToast } from "@raycast/utils";
 import { AppDetails, IpaToolSearchApp, ITunesResponse, ITunesResult } from "../types";
 import { ITUNES_API_BASE_URL, ITUNES_LOOKUP_ENDPOINT, ITUNES_SEARCH_ENDPOINT } from "./constants";
+import { DownloadPlatform, platformForITunesKind } from "./download-layout";
 
 // iTunes API Constants (imported from centralized constants)
 const ITUNES_DEFAULT_COUNTRY = "us";
@@ -146,6 +147,15 @@ export function convertITunesResultToAppDetails(
     artistId: itunesData.artistId || base.artistId,
     artistViewUrl: itunesData.artistViewUrl || base.artistViewUrl,
     // Screenshot URLs from iTunes API
+    // iTunes reports `mac-software` for Mac App Store titles; everything else
+    // is treated as iOS. This is the only platform signal available at mapping
+    // time, and it is what decides `--platform` on download.
+    // NEVER let enrichment overwrite a platform the caller already resolved.
+    // `fetchITunesAppDetails` looks a bundle id up with `entity=software`,
+    // which can only answer "iOS" — so re-enriching a Mac result flipped
+    // `macos` to `iphone` and the next download asked for the wrong binary.
+    // Enrichment may FILL an unknown platform; it may not contradict a known one.
+    platform: base.platform ?? (itunesData.kind ? platformForITunesKind(itunesData.kind) : undefined),
     screenshotUrls: itunesData.screenshotUrls || base.screenshotUrls || [],
     ipadScreenshotUrls: itunesData.ipadScreenshotUrls || base.ipadScreenshotUrls || [],
     appletvScreenshotUrls: itunesData.appletvScreenshotUrls || base.appletvScreenshotUrls || [],
@@ -182,6 +192,44 @@ export function convertIpaToolSearchAppToAppDetails(app: IpaToolSearchApp): AppD
     userRatingCountForCurrentVersion: 0,
     releaseDate: "",
   };
+}
+
+/**
+ * Resolves which platform's binary should be downloaded for a bundle id.
+ *
+ * Deliberately does NOT reuse `fetchITunesAppDetails`: that call pins
+ * `entity=software`, which can only ever return an iOS record, so it cannot
+ * tell a Mac-only title from a missing one. This query leaves the entity open
+ * and reads `kind` off whatever Apple returns.
+ *
+ * @param bundleId Bundle ID of the app
+ * @returns the resolved platform, or undefined when the lookup fails or says
+ *   nothing — the caller must keep treating the platform as UNKNOWN rather
+ *   than reading undefined as iOS.
+ */
+export async function resolveDownloadPlatform(bundleId: string): Promise<DownloadPlatform | undefined> {
+  try {
+    await rateLimit(apiRateLimiter);
+
+    const url = new URL(ITUNES_API_BASE_URL + ITUNES_LOOKUP_ENDPOINT);
+    url.searchParams.append("bundleId", bundleId);
+    url.searchParams.append("country", ITUNES_DEFAULT_COUNTRY);
+
+    const response = await fetchITunesWithRetry(url.toString(), bundleId);
+    const data = (await response.json()) as ITunesResponse;
+    const kind = data?.results?.[0]?.kind;
+    if (!kind) {
+      logger.warn(`[iTunes API] No kind for ${bundleId}; leaving platform unresolved`);
+      return undefined;
+    }
+
+    const platform = platformForITunesKind(kind);
+    logger.log(`[iTunes API] Resolved ${bundleId} to platform "${platform}" from kind "${kind}"`);
+    return platform;
+  } catch (error) {
+    logger.warn(`[iTunes API] Could not resolve platform for ${bundleId}:`, error);
+    return undefined;
+  }
 }
 
 /**

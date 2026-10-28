@@ -12,3 +12,6 @@ build/
 .DS_Store
 /docs/2fa-plan.md
 CLAUDE.md
+
+# local working plans (read from other checkouts; carry machine paths)
+/docs/plans/

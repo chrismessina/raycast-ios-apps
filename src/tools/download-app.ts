@@ -1,8 +1,16 @@
 import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
 import { Clipboard, showInFinder, showToast, Toast, Tool } from "@raycast/api";
-import { downloadApp, searchApps } from "../ipatool";
-import { AppleAuthGateError, AppleEmptyResponseError, BuiltInAppError, NotYetReleasedError } from "../utils/auth";
+import { downloadApp, findExistingDownload, searchApps } from "../ipatool";
+import {
+  AppleAuthGateError,
+  AppleEmptyResponseError,
+  BuiltInAppError,
+  Needs2FAError,
+  NotYetReleasedError,
+} from "../utils/auth";
+import { DownloadPlatform } from "../utils/download-layout";
+import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 
@@ -76,8 +84,40 @@ export default async function downloadIosApp(input: Input) {
 
     logger.log(`[download-app tool] Starting download for ${appName} (${bundleId})`);
 
+    const platform = downloadPlatformFor(app.platforms);
+
+    // Collision detection used to live ONLY in the UI hook, so this path walked
+    // straight into `downloadApp`, whose completion handler unlinks whatever
+    // sits at the destination before renaming. An AI download therefore
+    // replaced an existing file silently, and the confirmation never said so.
     try {
-      const filePath = await downloadApp(bundleId, appName, appVersion, price);
+      const existing = await findExistingDownload(bundleId, appName, appVersion, platform);
+      if (existing) {
+        const msg = `${appName} ${appVersion} is already downloaded at ${existing.filePath}. Delete it first to download again.`;
+        logger.log(`[download-app tool] ${msg}`);
+        await showToast({
+          style: Toast.Style.Success,
+          title: "Already Downloaded",
+          message: existing.filePath,
+          primaryAction: {
+            title: "Show in Finder",
+            shortcut: { modifiers: ["cmd"], key: "o" },
+            onAction: async () => {
+              await showInFinder(existing.filePath);
+            },
+          },
+        });
+        return { success: false, message: msg };
+      }
+    } catch (checkError) {
+      // A failed check must not block the download; it only costs the prompt.
+      logger.warn(`[download-app tool] Could not check for an existing download:`, checkError);
+    }
+
+    try {
+      const filePath = await downloadApp(bundleId, appName, appVersion, price, 0, undefined, {
+        platform,
+      });
 
       if (filePath === null) {
         // Existing file found; skipped re-download. Validation flow already showed an informational toast.
@@ -139,6 +179,19 @@ export default async function downloadIosApp(input: Input) {
       };
     } catch (downloadError) {
       logger.error(`[download-app tool] Download error for "${appName}":`, downloadError);
+
+      // A tool cannot push the code form, and Apple has already sent the code.
+      // Run Doctor can take it.
+      if (downloadError instanceof Needs2FAError) {
+        return {
+          success: false,
+          message: `Apple sent a verification code to the user's devices. Ask them to enter it in the iOS Apps "Run Doctor" command, then try ${appName} again.`,
+        };
+      }
+
+      if (downloadError instanceof DownloadInProgressError) {
+        return { success: false, message: `${appName} is already being downloaded in another Raycast command.` };
+      }
 
       // Pre-release / Coming Soon: detect via typed error first (carries the
       // classification through unchanged) and fall back to error-string
@@ -235,3 +288,24 @@ export const confirmation: Tool.Confirmation<Input> = async (input) => {
     return undefined;
   }
 };
+
+/**
+ * Pick the platform to download for from ipatool's `platforms` array.
+ *
+ * iPhone wins whenever it is offered, which keeps every universal app on the
+ * path it has always taken. Only a title with no iPhone build at all — a
+ * Mac-only app — is routed to macOS, and anything unrecognized falls back to
+ * iPhone rather than guessing.
+ */
+function downloadPlatformFor(platforms?: string[]): DownloadPlatform {
+  if (!platforms) return "iphone";
+  // "No iPhone" does not mean "Mac-only". An array of ["ipad", "macos"] has a
+  // perfectly good mobile build, and routing it to macOS made this path start
+  // passing `--platform macos` where it previously passed no flag at all — so
+  // the AI tool and the UI disagreed about the same app. Any mobile build wins
+  // and keeps ipatool's own resolution; only a title with no mobile build at
+  // all goes to macOS, and anything unrecognized falls back rather than guess.
+  if (platforms.includes("iphone") || platforms.includes("ipad")) return "iphone";
+  if (platforms.includes("macos")) return "macos";
+  return "iphone";
+}

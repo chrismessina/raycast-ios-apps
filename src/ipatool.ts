@@ -1,4 +1,4 @@
-import { execFile, spawn } from "child_process";
+import { ChildProcess, execFile, spawn } from "child_process";
 import fs from "fs";
 import https from "https";
 import path from "path";
@@ -17,7 +17,17 @@ import {
   NotYetReleasedError,
 } from "./utils/auth";
 import { extractFilePath, safeJsonParse } from "./utils/common";
+import { DownloadLayout, DownloadPlatform, layoutForFile, layoutForPlatform } from "./utils/download-layout";
+import {
+  acquireDownloadLock,
+  createOperationDirectory,
+  DownloadInProgressError,
+  isLockFile,
+  removeOperationDirectory,
+  type DownloadLock,
+} from "./utils/download-lock";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
+import { TWO_FACTOR_PROMPT_MESSAGE } from "./utils/errors";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import {
   analyzeIpatoolError,
@@ -32,7 +42,7 @@ import {
   fetchITunesAppDetails,
 } from "./utils/itunes-api";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
-import { cleanupTempFilesByPattern, handleProcessErrorCleanup, registerTempFile } from "./utils/temp-file-manager";
+import { registerTempFile, unregisterTempFile } from "./utils/temp-file-manager";
 
 // Retry configuration for handling transient network errors
 const MAX_RETRIES = 3; // Maximum number of retry attempts
@@ -43,6 +53,10 @@ const execFileAsync = promisify(execFile);
 
 // Constants for prerequisite validation
 const MIN_DISK_SPACE_MB = 300; // 300 MB fallback if expected size is not available
+// ipatool holds an intermediate and the artifact it becomes on disk at the same
+// time, on both platforms, so free space must cover roughly twice the final
+// size. Measured on macOS: a 192 MB app peaked at 363 MB.
+const DOWNLOAD_PEAK_SIZE_MULTIPLIER = 2;
 const BYTES_PER_MB = 1024 * 1024;
 
 // Constants for file integrity verification
@@ -77,74 +91,100 @@ export type ExistingDownloadCheck = { kind: "none" } | { kind: "overwrite" } | {
  * a different version of the same app ({AppName} {OtherVersion}.ipa) is NOT a
  * collision and downloads alongside the existing file without a prompt.
  */
-export async function checkForExistingDownload(
+/**
+ * Finds an existing download for this app WITHOUT prompting.
+ *
+ * Split out of `checkForExistingDownload` so a non-interactive caller — the AI
+ * tool, which cannot push a view — can detect a collision too. That path used
+ * to skip detection entirely and walk into `downloadApp`, whose completion
+ * handler unlinks whatever sits at the destination, so it replaced files
+ * silently.
+ */
+export async function findExistingDownload(
   bundleId: string,
   appName?: string,
   appVersion?: string,
-): Promise<ExistingDownloadCheck> {
-  const displayName = appName || bundleId;
+  platform: DownloadPlatform = "iphone",
+): Promise<{ filePath: string; sizeBytes: number } | null> {
   const downloadsDir = getDownloadsDirectory();
+  // A Mac download lands as `.pkg`, so looking only for `.ipa` would miss an
+  // existing Mac file and silently re-download it.
+  const { final: ext } = layoutForPlatform(platform);
 
-  const sanitizedName = appName ? appName.replace(/[/\\?%*:|"<>]/g, "-") : undefined;
+  // Must match the completion rename exactly, which cleans marketing suffixes
+  // BEFORE sanitizing (see the `close` handler). Skipping the clean step made
+  // the two construct different names, so an existing file was never found and
+  // the overwrite prompt never appeared — invisible for terse iOS names, but
+  // Mac App Store titles are full of " - " taglines ("Vista - Just open the
+  // image." renames to `Vista 3.6.pkg` while this looked for the whole tagline).
+  const sanitizedName = appName ? cleanAppNameForFilename(appName).replace(/[/\\?%*:|"<>]/g, "-") : undefined;
   const possibleFilenames = [
-    `${bundleId}.ipa`,
-    sanitizedName && appVersion ? `${sanitizedName} ${appVersion}.ipa` : undefined,
-    sanitizedName ? `${sanitizedName}.ipa` : undefined,
+    `${bundleId}${ext}`,
+    sanitizedName && appVersion ? `${sanitizedName} ${appVersion}${ext}` : undefined,
+    sanitizedName ? `${sanitizedName}${ext}` : undefined,
   ].filter(Boolean) as string[];
-
-  let existingFile: string | null = null;
-  let existingFileSize = 0;
 
   for (const filename of possibleFilenames) {
     const filePath = path.join(downloadsDir, filename);
     try {
       const stats = await fs.promises.stat(filePath);
-      existingFile = filePath;
-      existingFileSize = stats.size;
-      logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`);
-      break;
+      logger.log(`[validation] Found existing file: ${filePath} (${Math.ceil(stats.size / BYTES_PER_MB)} MB)`);
+      return { filePath, sizeBytes: stats.size };
     } catch {
       // File doesn't exist, continue checking
     }
   }
 
-  if (!existingFile) {
-    try {
-      const files = await fs.promises.readdir(downloadsDir);
-      // Only the bundleId substring is a safe fuzzy signal: it matches ipatool's
-      // raw intermediate file (`{bundleId}_{adamId}_{version}.ipa`) before we
-      // rename it. We deliberately do NOT match on the app-name prefix — every
-      // prior version shares the "{Name} " prefix and differs only by version,
-      // so a name-prefix match would flag a *different* version as a collision
-      // and prompt to overwrite a file we should be downloading alongside.
-      const similarFiles = files.filter((file) => {
-        if (!file.endsWith(".ipa")) return false;
-        return file.includes(bundleId);
-      });
+  try {
+    const files = await fs.promises.readdir(downloadsDir);
+    // Matches ipatool's raw intermediate name, `{bundleId}_{adamId}_{version}{ext}`.
+    //
+    // This was `file.includes(bundleId)`, which was wrong on BOTH axes: no
+    // bundle boundary, so `com.example.app` matched `com.example.app2`'s file —
+    // a different app entirely; and no version, so an older raw file matched
+    // despite the version-specific contract this function documents. We still
+    // deliberately do NOT match on the app-name prefix: every prior version
+    // shares the "{Name} " prefix and differs only by version.
+    const similarFiles = files.filter((file) => {
+      if (isLockFile(file)) return false;
+      if (!file.endsWith(ext)) return false;
+      if (!file.startsWith(`${bundleId}_`)) return false;
+      return appVersion ? file.endsWith(`_${appVersion}${ext}`) : true;
+    });
 
-      if (similarFiles.length > 0) {
-        const filePath = path.join(downloadsDir, similarFiles[0]);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          existingFile = filePath;
-          existingFileSize = stats.size;
-          logger.log(
-            `[validation] Found similar existing file: ${filePath} (${Math.ceil(existingFileSize / BYTES_PER_MB)} MB)`,
-          );
-        } catch (error) {
-          logger.warn(`[validation] Could not stat similar file:`, error);
-        }
+    if (similarFiles.length > 0) {
+      const filePath = path.join(downloadsDir, similarFiles[0]);
+      try {
+        const stats = await fs.promises.stat(filePath);
+        logger.log(
+          `[validation] Found similar existing file: ${filePath} (${Math.ceil(stats.size / BYTES_PER_MB)} MB)`,
+        );
+        return { filePath, sizeBytes: stats.size };
+      } catch (error) {
+        logger.warn(`[validation] Could not stat similar file:`, error);
       }
-    } catch (error) {
-      logger.warn(`[validation] Could not read downloads directory:`, error);
     }
+  } catch (error) {
+    logger.warn(`[validation] Could not read downloads directory:`, error);
   }
 
-  if (!existingFile) {
+  return null;
+}
+
+export async function checkForExistingDownload(
+  bundleId: string,
+  appName?: string,
+  appVersion?: string,
+  platform: DownloadPlatform = "iphone",
+): Promise<ExistingDownloadCheck> {
+  const displayName = appName || bundleId;
+  const existing = await findExistingDownload(bundleId, appName, appVersion, platform);
+
+  if (!existing) {
     return { kind: "none" };
   }
 
-  const existingFileMB = Math.ceil(existingFileSize / BYTES_PER_MB);
+  const existingFileMB = Math.ceil(existing.sizeBytes / BYTES_PER_MB);
   const confirmed = await confirmAlert({
     title: "File Already Exists",
     message: `A file for "${displayName}" already exists (${existingFileMB} MB).\n\nDo you want to overwrite it?`,
@@ -155,7 +195,7 @@ export async function checkForExistingDownload(
   });
 
   if (!confirmed) {
-    logger.log(`[validation] Skipped download: file already exists (${path.basename(existingFile)})`);
+    logger.log(`[validation] Skipped download: file already exists (${path.basename(existing.filePath)})`);
     return { kind: "skipped" };
   }
 
@@ -210,7 +250,16 @@ export async function validateDownloadPrereqs(
     }
 
     // 2. Check available disk space
-    const requiredSpaceBytes = expectedSizeBytes || MIN_DISK_SPACE_MB * BYTES_PER_MB;
+    //
+    // Budget the PEAK, not the final artifact. ipatool never writes straight
+    // through: macOS holds `.pkg.ipatool-encrypted` and `.pkg.ipatool-decrypted`
+    // at once before they collapse (measured: 363 MB peak for a 192 MB app),
+    // and the iOS repack holds `.ipa.tmp` alongside the `.ipa` it assembles.
+    // Budgeting 1x passed validation and then ran out of space mid-decrypt.
+    const peakMultiplier = DOWNLOAD_PEAK_SIZE_MULTIPLIER;
+    const requiredSpaceBytes = expectedSizeBytes
+      ? expectedSizeBytes * peakMultiplier
+      : MIN_DISK_SPACE_MB * BYTES_PER_MB;
     const requiredSpaceMB = Math.ceil(requiredSpaceBytes / BYTES_PER_MB);
 
     try {
@@ -388,28 +437,38 @@ export interface PurchaseResult {
  * @param appName Optional app name for logging
  * @returns Promise<PurchaseResult> - success flag plus error classification on failure
  */
+const PURCHASE_TIMEOUT_MS = 60_000;
+
 export async function purchaseApp(
   bundleId: string,
   appName?: string,
-  options?: { suppressHUD?: boolean },
+  options?: { suppressHUD?: boolean; platform?: DownloadPlatform },
 ): Promise<PurchaseResult> {
   const displayName = appName || bundleId;
   const done = logger.time(`purchaseApp:${displayName}`);
   logger.log(`[ipatool] Attempting to purchase app: ${displayName} (${bundleId})`);
 
   const suppressHUD = options?.suppressHUD ?? false;
-  if (!suppressHUD) {
-    await showHUD(`Attempting to purchase ${displayName}...`);
-  }
+  // A HUD that fails to show must not turn a granted license into a failure.
+  const hud = hudFor(suppressHUD);
+  await hud(`Attempting to purchase ${displayName}...`);
 
   // Use a promise-based spawn that captures stdout even on non-zero exit
   const stdout = await new Promise<string>((resolve, reject) => {
     let out = "";
     let err = "";
+    // A license is acquired PER PLATFORM. The recovery purchase inside a Mac
+    // download was previously handed `options` (which carries `platform`) by a
+    // signature that only read `suppressHUD`, so it silently fell back to
+    // ipatool's default and could license the wrong binary. Omitted for iPhone
+    // on purpose, matching `downloadApp`: no flag preserves ipatool's own
+    // resolution for universal and iPad-only titles.
+    const purchasePlatform = options?.platform ?? "iphone";
     const child = spawn(IPATOOL_PATH, [
       "purchase",
       "--bundle-identifier",
       bundleId,
+      ...(purchasePlatform !== "iphone" ? ["--platform", purchasePlatform] : []),
       "--format",
       "json",
       "--non-interactive",
@@ -422,8 +481,27 @@ export async function purchaseApp(
     child.stderr?.on("data", (data: Buffer) => {
       err += data.toString();
     });
-    child.on("error", (e) => reject(e));
+    // Apple can leave this request hanging, and the download lock's heartbeat
+    // keeps refreshing while it waits, so without a deadline every other
+    // command stays locked out of this app.
+    let killTimer: NodeJS.Timeout | undefined;
+    const deadline = setTimeout(() => {
+      logger.warn(`[ipatool] Purchase for ${displayName} timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`);
+      // Matches the timeout pattern in ipatool-error-patterns.ts.
+      err += `\npurchase timed out after ${PURCHASE_TIMEOUT_MS / 1000}s`;
+      // Armed before signaling: kill() can emit `error` synchronously, and
+      // that handler must find this timer to clear it.
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      child.kill("SIGTERM");
+    }, PURCHASE_TIMEOUT_MS);
+    child.on("error", (e) => {
+      clearTimeout(deadline);
+      clearTimeout(killTimer);
+      reject(e);
+    });
     child.on("close", () => {
+      clearTimeout(deadline);
+      clearTimeout(killTimer);
       // Always resolve with stdout so we can parse errors from ipatool's JSON output
       // (ipatool writes structured error info to stdout, not stderr)
       resolve(out + "\n" + err);
@@ -474,9 +552,7 @@ export async function purchaseApp(
   if (succeeded) {
     done({ result: "success" });
     logger.info(`[ipatool] Purchase successful or already owned for ${displayName}`);
-    if (!suppressHUD) {
-      await showHUD(`Successfully purchased ${displayName}`);
-    }
+    await hud(`Successfully purchased ${displayName}`);
     return { success: true };
   }
 
@@ -484,6 +560,14 @@ export async function purchaseApp(
   const errorToAnalyze = lastError || stdout;
   logger.error(`[ipatool] Purchase failed for ${displayName}: ${lastError || "(no parsed error)"}`);
   const errorAnalysis = analyzeIpatoolError(errorToAnalyze, "", "download");
+
+  // `ipatool purchase` takes the same silent re-login as download when the
+  // session token has expired, so Apple can answer it with a 2FA prompt too.
+  if (errorAnalysis.is2FARequired) {
+    logger.error(`[ipatool] Apple asked for a 2FA code during purchase of ${displayName}`);
+    done({ result: "needs_2fa" });
+    throw new Needs2FAError(TWO_FACTOR_PROMPT_MESSAGE);
+  }
 
   if (errorAnalysis.isAuthError) {
     logger.error(`[ipatool] Auth error during purchase: ${errorAnalysis.userMessage}`);
@@ -530,6 +614,32 @@ export async function purchaseApp(
 }
 
 /**
+ * Compares the downloaded file's size against the size ipatool reported.
+ *
+ * Container-independent: it reads metadata, not archive structure, so it is
+ * valid for a xar `.pkg` as much as a ZIP `.ipa`. Returns a failure result, or
+ * null when there is nothing to check or the size is within tolerance.
+ */
+function checkReportedSize(
+  actualSize: number,
+  ipatoolJson: Record<string, string | number> | null | undefined,
+  displayName: string,
+): IntegrityResult | null {
+  const expectedSize = ipatoolJson?.fileSize;
+  if (typeof expectedSize !== "number" || !expectedSize) return null;
+
+  const sizeTolerancePercent = 0.05; // 5% tolerance for size differences
+  if (Math.abs(actualSize - expectedSize) > expectedSize * sizeTolerancePercent) {
+    const errorMsg = `File size mismatch: expected ${Math.round(expectedSize / BYTES_PER_MB)} MB, got ${Math.round(actualSize / BYTES_PER_MB)} MB`;
+    logger.error(`[integrity] File size mismatch for ${displayName}: expected ${expectedSize}, got ${actualSize}`);
+    return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
+  }
+
+  logger.log(`[integrity] ✓ File size matches expected: ${Math.round(actualSize / BYTES_PER_MB)} MB`);
+  return null;
+}
+
+/**
  * Verifies the integrity of a downloaded iOS app file
  * @param filePath Path to the downloaded .ipa file
  * @param appName Optional app name for better error messages
@@ -542,7 +652,10 @@ export async function verifyFileIntegrity(
   ipatoolJson?: Record<string, string | number> | null,
 ): Promise<IntegrityResult> {
   const displayName = appName || path.basename(filePath);
-  logger.log(`[integrity] Starting file integrity verification for ${displayName}`);
+  // Derived from the artifact rather than passed in: the caller sees a path, and
+  // deriving means a future platform cannot get the wrong container check.
+  const layout = layoutForFile(filePath);
+  logger.log(`[integrity] Starting file integrity verification for ${displayName} (${layout.containerName})`);
 
   try {
     // Basic: ensure file exists and size > 1 MB
@@ -566,13 +679,30 @@ export async function verifyFileIntegrity(
     // (large IPAs like 872 MB would crash the Raycast worker with OOM)
     const fd = fs.openSync(filePath, "r");
     try {
-      // Check ZIP magic bytes (PK\x03\x04)
+      // Container magic, which differs per platform: `PK\x03\x04` for an iOS
+      // `.ipa`, `xar!` for a macOS `.pkg`.
+      const expectedMagic = layout.magic;
       const magic = Buffer.alloc(4);
       fs.readSync(fd, magic, 0, 4, 0);
-      if (magic[0] !== 0x50 || magic[1] !== 0x4b || magic[2] !== 0x03 || magic[3] !== 0x04) {
-        const errorMsg = `Downloaded file is not a valid ZIP/IPA archive (bad magic bytes)`;
-        logger.error(`[integrity] Invalid ZIP magic bytes: ${filePath}`);
+      if (expectedMagic.some((byte, index) => magic[index] !== byte)) {
+        const errorMsg = `Downloaded file is not a valid ${layout.containerName} archive (bad magic bytes)`;
+        logger.error(`[integrity] Invalid ${layout.containerName} magic bytes: ${filePath}`);
         return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
+      }
+
+      // A `.pkg` is a xar archive, and the structural walk below is ZIP-specific
+      // — central directory, `Payload/*.app`, `Info.plist`. Stopping at magic +
+      // size for xar is a deliberate ceiling: proving a xar payload really
+      // contains an app bundle means parsing its TOC, which buys nothing until a
+      // corrupt `.pkg` is actually observed. Upgrade then, not before.
+      if (!layout.isZip) {
+        logger.log(`[integrity] ✓ ${layout.containerName} magic verified for ${displayName} (no structural walk)`);
+        // Skipping the ZIP walk must NOT skip the container-INDEPENDENT checks.
+        // The metadata size comparison below describes the final artifact
+        // whatever its container, so a `.pkg` that is merely `xar!` + plausible
+        // length would otherwise pass while being far smaller than ipatool said.
+        const sizeResult = checkReportedSize(stats.size, ipatoolJson, displayName);
+        return sizeResult ?? { isValid: true };
       }
 
       // Read the end of the file to find the End of Central Directory record (EOCD)
@@ -663,20 +793,8 @@ export async function verifyFileIntegrity(
 
     // If ipatool JSON contains "fileSize" or "checksum", compare
     if (ipatoolJson) {
-      if (ipatoolJson.fileSize && typeof ipatoolJson.fileSize === "number") {
-        const expectedSize = ipatoolJson.fileSize;
-        const sizeDifference = Math.abs(stats.size - expectedSize);
-        const sizeTolerancePercent = 0.05; // 5% tolerance for size differences
-        const sizeTolerance = expectedSize * sizeTolerancePercent;
-
-        if (sizeDifference > sizeTolerance) {
-          const errorMsg = `File size mismatch: expected ${Math.round(expectedSize / BYTES_PER_MB)} MB, got ${Math.round(stats.size / BYTES_PER_MB)} MB`;
-          logger.error(`[integrity] File size mismatch: expected ${expectedSize}, got ${stats.size}`);
-          return { isValid: false, errorMessage: errorMsg, shouldRetry: true };
-        }
-
-        logger.log(`[integrity] ✓ File size matches expected: ${Math.round(stats.size / BYTES_PER_MB)} MB`);
-      }
+      const sizeResult = checkReportedSize(stats.size, ipatoolJson, displayName);
+      if (sizeResult) return sizeResult;
 
       if (ipatoolJson.checksum && typeof ipatoolJson.checksum === "string") {
         // For checksum verification, we would need to implement the appropriate hash algorithm
@@ -753,9 +871,10 @@ export const PURCHASES_PAGE_SIZE = 100;
  * One page of the signed-in Apple ID's purchase history.
  *
  * `ipatool list-purchases` pages are **1-indexed** and ordered purchase-date
- * descending; the order is stable and pages do not overlap. There is no
- * `--platform` flag, and the records carry no icon, rating, or genre — callers
- * enrich via iTunes.
+ * descending; the order is stable and pages do not overlap. A `--platform`
+ * filter exists (iphone/ipad/appletv/visionos/macos — notably NOT watchos,
+ * which `download` and `purchase` do accept) but we never pass it. The records
+ * carry no icon, rating, or genre — callers enrich via iTunes.
  *
  * Auth errors (`NeedsLoginError`, `Needs2FAError`, `AppleAuthGateError`) are
  * left to propagate so the caller can push the login flow.
@@ -823,7 +942,13 @@ export async function downloadApp(
   price = "0",
   retryCount = 0,
   retryDelay = INITIAL_RETRY_DELAY,
-  options?: { suppressHUD?: boolean; onProgress?: (progress: number) => void; expectedSizeBytes?: number },
+  options?: {
+    suppressHUD?: boolean;
+    onProgress?: (progress: number) => void;
+    expectedSizeBytes?: number;
+    /** Defaults to iPhone, which is what every caller assumed before Mac support. */
+    platform?: DownloadPlatform;
+  },
 ): Promise<string | null | undefined> {
   try {
     logger.log(`[ipatool] Starting download for bundleId: ${bundleId}, app: ${appName}, version: ${appVersion}`);
@@ -901,775 +1026,59 @@ export async function downloadApp(
     }
 
     if (!expectedSizeBytes) {
-      logger.warn(`[ipatool] No expected size available - progress tracking will be disabled`);
+      // Percentage is disabled, NOT liveness: the stall timer still gets fed by
+      // the poller's file fingerprint, or a sizeless download would be killed.
+      logger.warn(`[ipatool] No expected size available - progress percentage will be disabled`);
     }
 
-    // Show initial HUD with retry information if applicable
-    const retryInfo = retryCount > 0 ? ` (Attempt ${retryCount + 1}/${MAX_RETRIES + 1})` : "";
     const suppressHUD = options?.suppressHUD ?? false;
-    if (!suppressHUD) {
-      await showHUD(`Downloading ${appName || bundleId}${retryInfo}...`);
+    // Platform decides both the ipatool flag and the on-disk file layout the
+    // progress poller watches; macOS uses a different pipeline and container.
+    const platform: DownloadPlatform = options?.platform ?? "iphone";
+    const layout = layoutForPlatform(platform);
+    const { maxDownloadTimeout, maxStallTimeout } = getConfig();
+
+    // ONE claim for the whole logical download. Every retry and the re-download
+    // after an automatic license purchase run inside it; none of them takes it
+    // again. Keying "should I lock" on `retryCount === 0` used to make the
+    // post-purchase re-download (which restarts at 0) refuse itself.
+    const lock = acquireDownloadLock(downloadsDir, bundleId, platform);
+    // Release protection starts on the very next line. Anything awaited between
+    // acquiring and the `try` — a HUD, say — could otherwise reject and strand
+    // the lock.
+    try {
+      return await runDownloadAttempts(
+        {
+          bundleId,
+          appName,
+          appVersion,
+          price,
+          downloadsDir,
+          platform,
+          layout,
+          suppressHUD,
+          onProgress: options?.onProgress,
+          expectedSizeBytes,
+          maxDownloadTimeout,
+          maxStallTimeout,
+          lock,
+        },
+        retryCount,
+        retryDelay,
+      );
+    } finally {
+      lock.release();
+    }
+  } catch (error) {
+    // Another Raycast command already owns this bundle's download. This is a
+    // normal collision, not a failure: say so plainly and do not log a stack.
+    // The callers say so in their own voice (a toast, an AI tool result); a HUD
+    // here only duplicated that, and a rejecting one replaced the typed error.
+    if (error instanceof DownloadInProgressError) {
+      logger.log(`[ipatool] Download refused: ${bundleId} is already in progress elsewhere`);
+      throw error;
     }
 
-    // Check if the app is paid based on price value
-    const isPaidApp = price && parseFloat(price) > 0;
-    logger.log(
-      `[ipatool] Downloading app: ${appName || bundleId}, isPaidApp: ${isPaidApp}, price: ${price}${retryInfo}`,
-    );
-
-    // Use spawn instead of exec to get real-time output
-    return new Promise<string | null | undefined>((resolve, reject) => {
-      // Prepare the command and arguments
-      const args = [
-        "download",
-        "-b",
-        bundleId,
-        "-o",
-        downloadsDir,
-        "--format",
-        "json",
-        "--non-interactive",
-        "--verbose",
-      ];
-
-      // Add purchase flag for paid apps
-      if (isPaidApp) {
-        logger.log("Adding --purchase flag for paid app");
-        args.push("--purchase");
-      }
-
-      logger.log(`[ipatool] Executing download command: ${IPATOOL_PATH} ${args.join(" ")}`);
-
-      // IPATool downloads to ${bundleId}_${adamId}_${version}.ipa, but we don't know adamId yet
-      // We'll search for any file starting with bundleId in the progress tracking
-      // Register a pattern for cleanup
-      const downloadFilePattern = `${bundleId}*.ipa`;
-      registerTempFile(path.join(downloadsDir, downloadFilePattern));
-
-      // Clean up any leftover temp files from previous failed downloads
-      // This prevents "negative offset" errors when ipatool tries to resume from corrupted .ipa.tmp files
-      cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
-
-      // Create secure spawn process with timeout management
-      const { maxDownloadTimeout, maxStallTimeout } = getConfig();
-
-      createSecureIpatoolProcess(args, {
-        timeout: maxDownloadTimeout,
-        allowedCommands: ["download"],
-      })
-        .then((child) => {
-          let stdout = "";
-          let stderr = "";
-          let lastProgress = 0;
-          let stallTimer: NodeJS.Timeout;
-          let lastReportedSize = 0;
-          // Liveness watermark, separate from lastReportedSize: it counts every
-          // byte written across BOTH files, so the repack phase still resets
-          // the stall timer even though the percentage no longer moves.
-          let lastObservedBytes = 0;
-
-          const resetStallTimer = () => {
-            if (stallTimer) clearTimeout(stallTimer);
-            stallTimer = setTimeout(() => {
-              logger.error(`[ipatool] Download stalled after ${maxStallTimeout / 1000} seconds without progress.`);
-              child.kill();
-              cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
-              reject(new Error("Download stalled."));
-            }, maxStallTimeout);
-          };
-
-          // Progress tracking via file size monitoring
-          logger.log(
-            `[ipatool] Starting progress tracking interval. expectedSizeBytes: ${expectedSizeBytes}, bundleId: ${bundleId}`,
-          );
-
-          const progressCheckInterval = setInterval(() => {
-            if (!expectedSizeBytes || expectedSizeBytes === 0) {
-              logger.log(
-                `[ipatool] Progress check skipped - no expected size (expectedSizeBytes: ${expectedSizeBytes})`,
-              );
-              return; // Can't calculate progress without expected size
-            }
-
-            try {
-              // ipatool downloads to ${bundleId}_${adamId}_${version}.ipa —
-              // but since 2.6.0 the bytes land in a sibling `.ipa.tmp` first,
-              // and the real `.ipa` is only assembled from it at the end (the
-              // repack that injects iTunes artwork). Matching `.ipa` alone
-              // therefore saw NOTHING for the whole network phase and reported
-              // no progress at all.
-              //
-              // Both files exist at once during the repack, so watch BOTH and
-              // drive progress off whichever is further along. The `_` in the
-              // prefix matters: a bare startsWith(bundleId) lets a download of
-              // `com.example.app` latch onto `com.example.app2`'s file.
-              let tmpSize = 0;
-              let finalSize = 0;
-              const files = fs.readdirSync(downloadsDir);
-              for (const file of files) {
-                if (!file.startsWith(`${bundleId}_`)) continue;
-                const isTmp = file.endsWith(".ipa.tmp");
-                if (!isTmp && !file.endsWith(".ipa")) continue;
-                const size = fs.statSync(path.join(downloadsDir, file)).size;
-                // Newest wins, so a stale `.tmp` left by a killed download of
-                // the same app can't out-vote the one being written now.
-                if (isTmp) tmpSize = Math.max(tmpSize, size);
-                else finalSize = Math.max(finalSize, size);
-              }
-
-              // Any movement in EITHER file is liveness, even when it buys no
-              // percentage points. The repack phase writes only the final
-              // `.ipa` while the `.tmp` sits at its full size — scoring that as
-              // "no progress" let the stall timer kill a download that was
-              // seconds from succeeding, and take its files with it.
-              const observedBytes = tmpSize + finalSize;
-              if (observedBytes > lastObservedBytes) {
-                lastObservedBytes = observedBytes;
-                resetStallTimer();
-              }
-
-              const currentSize = Math.max(tmpSize, finalSize);
-              if (currentSize > 0) {
-                // Only report progress if file size has changed significantly (every 512KB or at completion)
-                // Using 512KB threshold to catch progress on faster downloads
-                const shouldReport = currentSize > lastReportedSize + 512 * 1024 || currentSize === expectedSizeBytes;
-
-                if (shouldReport) {
-                  const progress = Math.min(currentSize / expectedSizeBytes, 1.0);
-
-                  if (progress > lastProgress) {
-                    lastProgress = progress;
-
-                    // Call progress callback if provided (callback will handle logging)
-                    if (options?.onProgress) {
-                      options.onProgress(progress);
-                    }
-
-                    // Update HUD if not suppressed (when no callback is used)
-                    if (!suppressHUD) {
-                      const progressPercent = Math.round(progress * 100);
-                      showHUD(`Downloading ${appName || bundleId}... ${progressPercent}%`);
-                    }
-
-                    lastReportedSize = currentSize;
-                  }
-                }
-              }
-            } catch (error) {
-              logger.warn(`[ipatool] Error checking download progress:`, error);
-            }
-          }, 250); // Check every 250ms for more responsive progress updates
-
-          resetStallTimer(); // Initialize stall timer
-
-          // Collect stdout data
-          if (child.stdout) {
-            child.stdout.on("data", (data) => {
-              const chunk = data.toString();
-              stdout += chunk;
-              logger.log(`[ipatool] stdout: ${chunk.trim()}`);
-            });
-          }
-
-          // Clear stall timer and progress interval on completion
-          const clearAllTimers = () => {
-            if (stallTimer) clearTimeout(stallTimer);
-            if (progressCheckInterval) clearInterval(progressCheckInterval);
-          };
-
-          // Collect stderr data
-          if (child.stderr) {
-            child.stderr.on("data", (data) => {
-              const chunk = data.toString();
-              stderr += chunk;
-              logger.error(`[ipatool] stderr: ${chunk.trim()}`);
-
-              // Log specific error types for better debugging
-              if (chunk.includes("network") || chunk.includes("connection") || chunk.includes("tls")) {
-                logger.error(`[ipatool] Network-related error detected: ${chunk.trim()}`);
-              } else if (chunk.includes("authentication") || chunk.includes("login")) {
-                logger.error(`[ipatool] Authentication error detected: ${chunk.trim()}`);
-              }
-            });
-          }
-
-          // Handle process completion. Node emits (code, signal) on close —
-          // when the process exits normally, `code` is the exit status and
-          // `signal` is null; when it's killed by a signal (timeout watchdog,
-          // stall watchdog, OS kill, Raycast reload), `code` is null and
-          // `signal` carries the signal name (e.g. "SIGTERM"). We surface that
-          // so the user-facing error is actionable instead of "code null".
-          child.on("close", async (code, signal) => {
-            clearAllTimers();
-            logger.log(`[ipatool] Download process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
-
-            // Land on 100%. The denominator is Apple's `fileSizeBytes`, which
-            // is the INSTALLED size, not the archive — Muse reports 111 MB and
-            // ships an 85 MB IPA — so the poller's last honest reading is
-            // whatever fraction the IPA happens to be of that (76%, there).
-            // The bar then just stops. ipatool exiting 0 is the only real
-            // completion signal we get, so use it.
-            if (code === 0 && lastProgress < 1) {
-              lastProgress = 1;
-              options?.onProgress?.(1);
-              if (!suppressHUD) {
-                showHUD(`Downloading ${appName || bundleId}... 100%`);
-              }
-            }
-
-            // Only log full output in development or when there's an error
-            if (process.env.NODE_ENV === "development" || code !== 0) {
-              logger.log(`[ipatool] Full stdout: ${stdout}`);
-              logger.log(`[ipatool] Full stderr: ${stderr}`);
-            }
-
-            if (code !== 0) {
-              logger.error(
-                `[ipatool] Download failed with code ${code}${signal ? ` (signal: ${signal})` : ""}. Error: ${stderr}`,
-              );
-              logger.error(`[ipatool] Full stdout content: "${stdout}"`);
-
-              // Parse JSON output from stdout to get specific error information.
-              // If the process was killed by a signal, code is null and we
-              // describe what actually happened instead of "code null".
-              const errorMessage = signal
-                ? signal === "SIGTERM"
-                  ? `Download stopped before completing (terminated). This usually means it stalled, timed out, or was interrupted.`
-                  : `Download stopped before completing (signal: ${signal}).`
-                : `Process exited with code ${code}`;
-              let specificError = "";
-
-              try {
-                // ipatool often outputs multiple JSON lines, check each line
-                const lines = stdout
-                  .trim()
-                  .split("\n")
-                  .filter((line) => line.trim());
-                for (const line of lines) {
-                  if (line.includes('"error"')) {
-                    const jsonData = JSON.parse(line);
-                    if (jsonData.error) {
-                      specificError = jsonData.error;
-                      logger.error(`[ipatool] Parsed error from JSON: ${specificError}`);
-                      break;
-                    }
-                  }
-                }
-              } catch (parseError) {
-                logger.error(`[ipatool] Could not parse JSON from stdout: ${parseError}`);
-              }
-
-              // Check if this is a network error that might be transient
-              // Check both stderr and parsed error messages from stdout
-              const isNetworkError =
-                stderr.includes("TLS") ||
-                stderr.includes("network") ||
-                stderr.includes("connection") ||
-                specificError.includes("tls") ||
-                specificError.includes("network") ||
-                specificError.includes("connection") ||
-                specificError.includes("bad record MAC");
-
-              if (isNetworkError && retryCount < MAX_RETRIES) {
-                const nextRetryCount = retryCount + 1;
-                const nextRetryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
-
-                logger.log(
-                  `[ipatool] Network/TLS error detected: "${specificError}". Retrying in ${retryDelay}ms (attempt ${nextRetryCount}/${MAX_RETRIES})`,
-                );
-                if (!suppressHUD) {
-                  await showHUD(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
-                }
-
-                // Clean up temp files before retrying to prevent "negative offset" errors
-                cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
-
-                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
-                // Resolve with the retry result to properly propagate the Promise chain
-                resolve(
-                  await downloadApp(
-                    bundleId,
-                    appName,
-                    appVersion,
-                    price,
-                    nextRetryCount,
-                    nextRetryDelay,
-                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                  ),
-                );
-                return;
-              }
-
-              // Use precise ipatool error analysis for categorization
-              const fullErrorMessage = stderr || specificError || errorMessage;
-              const errorAnalysis = analyzeIpatoolError(fullErrorMessage, stderr);
-
-              // Check if this is a timeout/stall error that can be retried
-              if (errorAnalysis.errorType === "timeout" && retryCount < MAX_RETRIES) {
-                const nextRetryCount = retryCount + 1;
-                const nextRetryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
-
-                logger.log(
-                  `[ipatool] Timeout/stall error detected. Retrying in ${retryDelay}ms (attempt ${nextRetryCount}/${MAX_RETRIES})`,
-                );
-                if (!suppressHUD) {
-                  await showHUD(`Download stalled. Retrying in ${Math.round(retryDelay / 1000)}s...`);
-                }
-                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, retryDelay));
-                resolve(
-                  await downloadApp(
-                    bundleId,
-                    appName,
-                    appVersion,
-                    price,
-                    nextRetryCount,
-                    nextRetryDelay,
-                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                  ),
-                );
-                return;
-              }
-
-              // Retry for rate limiting or maintenance downtime with extended backoff
-              if (
-                (errorAnalysis.errorType === "rate_limited" || errorAnalysis.errorType === "maintenance") &&
-                retryCount < MAX_RETRIES
-              ) {
-                const nextRetryCount = retryCount + 1;
-                const baseDelay = Math.max(retryDelay, 5000);
-                const nextRetryDelay = Math.min(Math.floor(baseDelay * 1.5), 30000);
-
-                logger.log(
-                  `[ipatool] ${
-                    errorAnalysis.errorType === "rate_limited" ? "Rate limited" : "App Store maintenance"
-                  } detected. Retrying in ${Math.round(baseDelay / 1000)}s (attempt ${nextRetryCount}/${MAX_RETRIES})`,
-                );
-                if (!suppressHUD) {
-                  await showHUD(
-                    `${
-                      errorAnalysis.errorType === "rate_limited" ? "Rate limited" : "Maintenance"
-                    } – retrying in ${Math.round(baseDelay / 1000)}s...`,
-                  );
-                }
-
-                await new Promise((resolveTimeout) => setTimeout(resolveTimeout, baseDelay));
-                resolve(
-                  await downloadApp(
-                    bundleId,
-                    appName,
-                    appVersion,
-                    price,
-                    nextRetryCount,
-                    nextRetryDelay,
-                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                  ),
-                );
-                return;
-              }
-
-              // Use the error analysis we already performed above
-              // (errorAnalysis is already defined from the timeout check)
-
-              // Apple answered 200 with an empty product payload for this
-              // specific app. Terminal and app-specific — typed so the caller
-              // says so rather than re-deriving it from a wrapped string.
-              if (errorAnalysis.errorType === "apple_empty_response") {
-                logger.error(
-                  `[ipatool] Apple returned an empty payload for ${appName || bundleId} — see majd/ipatool#538`,
-                );
-                reject(new AppleEmptyResponseError(errorAnalysis.userMessage));
-                return;
-              }
-
-              if (errorAnalysis.errorType === "apple_auth_gate") {
-                logger.error(`[ipatool] Apple auth gate hit for ${appName || bundleId}: ${errorAnalysis.userMessage}`);
-                reject(new AppleAuthGateError(errorAnalysis.userMessage));
-                return;
-              }
-
-              // Use the analyzed error message and routing. Several userMessages
-              // open with a literal "App" standing in for the app's name — swap
-              // in the real one.
-              //
-              // ANCHORED AND WORD-BOUNDED ON PURPOSE. A bare
-              // `.replace("App", name)` matches the first "App" ANYWHERE,
-              // including inside "Apple": it turned "unexpected response from
-              // Apple (HTTP 403)" into `unexpected response from "Tolan: Your
-              // Friendly Guide"le (HTTP 403)`. The `(?! Store)` guard keeps
-              // "App Store is temporarily unavailable" intact — there "App"
-              // names Apple's store, not this app.
-              let finalErrorMessage = errorAnalysis.userMessage.includes(appName || bundleId)
-                ? errorAnalysis.userMessage
-                : // Callback form on purpose: a plain string replacement would let
-                  // `$&` / `$'` inside an app NAME be interpreted as replacement
-                  // metacharacters and echo the match back instead of the name.
-                  errorAnalysis.userMessage.replace(/^App(?! Store)\b/, () => `"${appName || bundleId}"`);
-
-              // Check if this is a license required error for a free app
-              if (errorAnalysis.isLicenseRequired && isFreeApp(price)) {
-                if (isAppleBuiltInApp(bundleId)) {
-                  logger.log(
-                    `[ipatool] License required for built-in Apple app ${appName || bundleId}; the Store will not license these to ipatool.`,
-                  );
-
-                  // Typed, so the caller states the reason plainly rather than
-                  // letting the generic analyzer wrap it as "Download failed:".
-                  reject(new BuiltInAppError(builtInAppMessage(appName || bundleId)));
-                  return;
-                } else {
-                  logger.log(
-                    `[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`,
-                  );
-
-                  try {
-                    const purchaseResult = await purchaseApp(bundleId, appName, options);
-
-                    if (purchaseResult.success) {
-                      logger.log(
-                        `[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`,
-                      );
-                      if (!suppressHUD) {
-                        await showHUD(`License obtained. Retrying download...`);
-                      }
-
-                      // Retry the download after successful license purchase
-                      resolve(
-                        await downloadApp(
-                          bundleId,
-                          appName,
-                          appVersion,
-                          price,
-                          0,
-                          INITIAL_RETRY_DELAY,
-                          options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                        ),
-                      );
-                      return;
-                    } else {
-                      logger.log(
-                        `[ipatool] License purchase failed for ${appName || bundleId} (${purchaseResult.errorType}). Proceeding with error handling.`,
-                      );
-                      if (!suppressHUD) {
-                        await showHUD(`Failed to obtain license for ${appName || bundleId}`);
-                      }
-
-                      // Surface the purchase error's own classification rather
-                      // than guessing. Rate limiting (ipatool#480 plist error)
-                      // is the common case for some apps and is transient.
-                      if (purchaseResult.errorType === "rate_limited") {
-                        finalErrorMessage = `Could not get a license for "${appName || bundleId}" — Apple is rate-limiting requests. Please wait a few minutes and try again.`;
-                      } else if (purchaseResult.userMessage) {
-                        finalErrorMessage = `Could not get a license for "${appName || bundleId}": ${purchaseResult.userMessage}`;
-                      } else {
-                        finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to App Store restrictions.`;
-                      }
-                    }
-                  } catch (purchaseError) {
-                    // If purchase failed due to auth (e.g. expired token, password changed),
-                    // propagate NeedsLoginError directly so the download hook redirects to sign-in
-                    // Apple's gate is terminal and already typed — rethrow so the
-                    // hook's typed branch sees it instead of a wrapped string.
-                    if (purchaseError instanceof AppleEmptyResponseError) {
-                      logger.error(`[ipatool] Apple returned an empty payload purchasing ${appName || bundleId}`);
-                      reject(purchaseError);
-                      return;
-                    }
-
-                    if (purchaseError instanceof AppleAuthGateError) {
-                      logger.error(`[ipatool] Apple auth gate during license purchase for ${appName || bundleId}`);
-                      reject(purchaseError);
-                      return;
-                    }
-
-                    if (purchaseError instanceof Error && purchaseError.name === "NeedsLoginError") {
-                      logger.error(`[ipatool] Auth required during license purchase for ${appName || bundleId}`);
-                      reject(purchaseError);
-                      return;
-                    }
-
-                    // Pre-release / Coming Soon: propagate the typed error unchanged so the
-                    // hook can render the specific "Not Released Yet" toast.
-                    if (purchaseError instanceof NotYetReleasedError) {
-                      logger.log(`[ipatool] Pre-release surfaced during license purchase for ${appName || bundleId}`);
-                      reject(purchaseError);
-                      return;
-                    }
-
-                    logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
-                    if (!suppressHUD) {
-                      await showHUD(`License purchase error for ${appName || bundleId}`);
-                    }
-
-                    // Update the error message to include the purchase error details
-                    const purchaseErrorMsg =
-                      purchaseError instanceof Error ? purchaseError.message : String(purchaseError);
-                    finalErrorMessage = `License purchase failed for free app "${appName || bundleId}": ${purchaseErrorMsg}`;
-                  }
-                }
-              }
-
-              // Route to appropriate error handler based on analysis
-              if (errorAnalysis.isAuthError) {
-                // Reject with NeedsLoginError to let the hook handle it with navigation
-                reject(new NeedsLoginError(finalErrorMessage));
-              } else if (errorAnalysis.errorType === "not_yet_released") {
-                // Pre-release / Coming Soon: surface as typed error so the hook can
-                // show "Not Released Yet" without re-parsing the wrapped message.
-                reject(new NotYetReleasedError(finalErrorMessage));
-              } else {
-                // Pass shouldThrow=false since we're inside an async callback and will reject() below
-                // Throwing here would cause an uncaught exception that crashes the extension
-                await handleDownloadError(new Error(finalErrorMessage), "download app", "downloadApp", false);
-                reject(new Error(finalErrorMessage));
-              }
-              return;
-            }
-
-            // Show complete HUD
-            if (!suppressHUD) {
-              await showHUD("Download complete");
-            }
-
-            // Try to find a JSON object in the output
-            let filePath = "";
-
-            // Look for JSON object in the output
-            const lines = stdout.trim().split("\n");
-            for (let i = lines.length - 1; i >= 0; i--) {
-              const line = lines[i].trim();
-              if (line.startsWith("{") && line.endsWith("}")) {
-                try {
-                  const jsonOutput = safeJsonParse<{ output: string }>(line, { output: "" });
-                  if (jsonOutput.output) {
-                    filePath = jsonOutput.output;
-                    logger.log(`[ipatool] Found file path in JSON output: ${filePath}`);
-                    break;
-                  }
-                } catch (e) {
-                  logger.error("Error parsing JSON line:", e);
-                  // Continue to next line if this one fails
-                }
-              }
-            }
-
-            // If no filePath found in JSON, try to extract it from the stdout
-            if (!filePath) {
-              logger.log(
-                "[ipatool] No JSON output found, trying to extract file path from stdout using regex patterns",
-              );
-              filePath = extractFilePath(stdout, "");
-
-              // If still no file path, try a fallback approach
-              if (!filePath) {
-                // Try to find the file in the downloads directory with the bundle ID
-                const defaultPath = path.join(downloadsDir, `${bundleId}.ipa`);
-                if (fs.existsSync(defaultPath)) {
-                  filePath = defaultPath;
-                  logger.log(`[ipatool] Using default file path based on bundleId: ${filePath}`);
-                } else {
-                  // Try to find any recently created .ipa file in the downloads directory
-                  try {
-                    const files = fs
-                      .readdirSync(downloadsDir)
-                      .filter((file) => file.endsWith(".ipa") && file.includes(bundleId))
-                      .map((file) => ({
-                        name: file,
-                        path: path.join(downloadsDir, file),
-                        mtime: fs.statSync(path.join(downloadsDir, file)).mtime,
-                      }))
-                      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-
-                    if (files.length > 0) {
-                      filePath = files[0].path;
-                      logger.log(`[ipatool] Found most recent .ipa file in downloads directory: ${filePath}`);
-                    }
-                  } catch (e) {
-                    logger.error("Error finding .ipa files:", e);
-                  }
-                }
-              }
-            }
-
-            logger.log(`[ipatool] Original downloaded file path: ${filePath}`);
-
-            // Verify file integrity before renaming
-            if (filePath && fs.existsSync(filePath)) {
-              logger.log(`[ipatool] Starting file integrity verification for ${appName || bundleId}`);
-
-              // Parse any JSON metadata from stdout for integrity verification
-              let ipatoolJsonData = null;
-              try {
-                const lines = stdout.trim().split("\n");
-                for (const line of lines) {
-                  if (line.trim().startsWith("{") && line.trim().endsWith("}")) {
-                    const parsedJson = JSON.parse(line);
-                    if (parsedJson && (parsedJson.fileSize || parsedJson.checksum)) {
-                      ipatoolJsonData = parsedJson;
-                      logger.log(`[ipatool] Found metadata for integrity check:`, ipatoolJsonData);
-                      break;
-                    }
-                  }
-                }
-              } catch {
-                logger.log(`[ipatool] No valid JSON metadata found for integrity verification`);
-              }
-
-              const integrityResult = await verifyFileIntegrity(filePath, appName, ipatoolJsonData);
-
-              if (!integrityResult.isValid) {
-                logger.error(`[ipatool] File integrity verification failed: ${integrityResult.errorMessage}`);
-
-                // Cleanup corrupted file
-                try {
-                  fs.unlinkSync(filePath);
-                  logger.log(`[ipatool] Cleaned up corrupted file: ${filePath}`);
-                } catch (cleanupError) {
-                  logger.error(`[ipatool] Error cleaning up corrupted file:`, cleanupError);
-                }
-
-                // Handle corrupted file error (shouldThrow=false since we're in async callback)
-                await handleDownloadError(
-                  new Error(`Downloaded file is corrupted: ${integrityResult.errorMessage}`),
-                  "verify downloaded file",
-                  "downloadApp",
-                  false,
-                );
-
-                // Optional automatic retry (once) for corrupted files
-                if (integrityResult.shouldRetry && retryCount === 0) {
-                  logger.log(`[ipatool] Attempting automatic retry for corrupted file`);
-                  if (!suppressHUD) {
-                    await showHUD(`File corrupted. Retrying download...`);
-                  }
-
-                  // Wait a short delay before retry
-                  await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 2000));
-
-                  // Retry with retryCount = 1 to prevent infinite retry loop
-                  resolve(
-                    await downloadApp(
-                      bundleId,
-                      appName,
-                      appVersion,
-                      price,
-                      1,
-                      INITIAL_RETRY_DELAY,
-                      options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                    ),
-                  );
-                  return;
-                }
-
-                reject(new Error(`File integrity verification failed: ${integrityResult.errorMessage}`));
-                return;
-              }
-
-              logger.log(`[ipatool] ✓ File integrity verification passed for ${appName || bundleId}`);
-            }
-
-            // Rename the file if we have app name and version and the file exists
-            if (filePath && fs.existsSync(filePath) && appName && appVersion) {
-              const directory = path.dirname(filePath);
-              const currentFileName = path.basename(filePath);
-
-              // Clean the app name by removing marketing terms
-              const cleanedAppName = cleanAppNameForFilename(appName);
-
-              // Replace invalid filename characters with a dash
-              const sanitizedAppName = cleanedAppName.replace(/[/\\?%*:|"<>]/g, "-");
-              const newFileName = `${sanitizedAppName} ${appVersion}.ipa`;
-              const newFilePath = path.join(directory, newFileName);
-
-              logger.log(`[ipatool] Attempting to rename file from: ${currentFileName} to: ${newFileName}`);
-
-              try {
-                // Check if the target file already exists to avoid conflicts
-                if (fs.existsSync(newFilePath)) {
-                  logger.warn(`[ipatool] Target file already exists: ${newFilePath}. Removing old file.`);
-                  try {
-                    fs.unlinkSync(newFilePath);
-                  } catch (unlinkError) {
-                    logger.error(`[ipatool] Failed to remove existing file: ${newFilePath}`, unlinkError);
-                    // Continue anyway and let rename fail if it will
-                  }
-                }
-
-                fs.renameSync(filePath, newFilePath);
-                logger.log(`[ipatool] Successfully renamed file to: ${newFilePath}`);
-                logger.log(`[ipatool] Download and rename complete for ${cleanedAppName} v${appVersion}`);
-                filePath = newFilePath;
-              } catch (e) {
-                logger.error(`[ipatool] Error renaming file from ${currentFileName} to ${newFileName}:`, e);
-                logger.log(`[ipatool] Continuing with original file path: ${filePath}`);
-                // Continue with the original file path if rename fails
-              }
-            }
-
-            resolve(filePath);
-          });
-
-          // Handle process errors
-          child.on("error", async (error) => {
-            clearAllTimers();
-            logger.error(`[ipatool] Process error during download: ${error.message}`);
-
-            // Check if this is a TLS error or other network error that might be transient
-            const isTlsError =
-              error.message.includes("tls: bad record MAC") ||
-              error.message.includes("network error") ||
-              error.message.includes("connection reset");
-
-            // If we have retries left and it's a TLS error, retry with backoff
-            if (isTlsError && retryCount < MAX_RETRIES) {
-              const nextRetryCount = retryCount + 1;
-              const nextRetryDelay = retryDelay * 1.5; // Exponential backoff
-
-              logger.log(
-                `[ipatool] TLS/Network error detected in process error handler. Retrying in ${retryDelay}ms (Attempt ${nextRetryCount}/${MAX_RETRIES})`,
-              );
-              if (!suppressHUD) {
-                await showHUD(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
-              }
-              logger.log(`[ipatool] Waiting ${retryDelay}ms before retry attempt ${nextRetryCount}/${MAX_RETRIES}`);
-
-              // Wait for the retry delay
-              setTimeout(async () => {
-                try {
-                  // Retry the download
-                  const result = await downloadApp(
-                    bundleId,
-                    appName,
-                    appVersion,
-                    price,
-                    nextRetryCount,
-                    nextRetryDelay,
-                    options ? { ...options, expectedSizeBytes } : { expectedSizeBytes },
-                  );
-                  resolve(result);
-                } catch (retryError) {
-                  reject(retryError);
-                }
-              }, retryDelay);
-              return;
-            }
-
-            // If we're out of retries or it's not a TLS error, fail normally
-            handleProcessErrorCleanup(error, "downloadApp");
-            if (!suppressHUD) {
-              await showHUD("Download failed");
-            }
-            // shouldThrow=false since we're in async callback and will reject() below
-            await handleDownloadError(error, "download app", "downloadApp", false);
-            reject(error);
-          });
-        })
-        .catch((processError) => {
-          logger.error(`[ipatool] Failed to create secure process:`, processError);
-          cleanupTempFilesByPattern(downloadsDir, `${bundleId}_`);
-          reject(processError);
-        });
-    });
-  } catch (error) {
     // Let authentication errors bubble up to be handled by the calling code
     if (error instanceof NeedsLoginError || error instanceof Needs2FAError) {
       logger.error(`[ipatool] Authentication error during download: ${error.message}`);
@@ -1686,6 +1095,844 @@ export async function downloadApp(
   }
 }
 
+/** Everything one logical download needs, fixed for all of its attempts. */
+interface DownloadContext {
+  bundleId: string;
+  appName: string;
+  appVersion: string;
+  price: string;
+  downloadsDir: string;
+  platform: DownloadPlatform;
+  layout: DownloadLayout;
+  suppressHUD: boolean;
+  onProgress?: (progress: number) => void;
+  expectedSizeBytes?: number;
+  maxDownloadTimeout: number;
+  maxStallTimeout: number;
+  lock: DownloadLock;
+}
+
+/** What may still happen after this attempt. */
+interface AttemptPolicy {
+  attempt: number;
+  retryDelay: number;
+  /** An automatic license purchase is tried at most once per download. */
+  allowPurchase: boolean;
+  /** A corrupted file is re-downloaded at most once per download. */
+  allowIntegrityRetry: boolean;
+}
+
+/**
+ * How an attempt ended. An attempt never recurses and never decides anything
+ * about the attempts after it — it reports, and `runDownloadAttempts` acts.
+ */
+type AttemptOutcome =
+  | { kind: "done"; filePath: string | undefined }
+  | { kind: "failed"; error: Error }
+  | {
+      kind: "retry";
+      waitMs: number;
+      nextAttempt: number;
+      nextDelay: number;
+      afterPurchase?: boolean;
+      afterCorruption?: boolean;
+    };
+
+/** How the ipatool child ended. Settled exactly once. */
+type DownloadRun =
+  | {
+      type: "close";
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      stdout: string;
+      stderr: string;
+      stalled: boolean;
+    }
+  | { type: "error"; error: Error; stdout: string; stderr: string };
+
+/** A HUD that can never reject into a download: a failed notice is not a failed download. */
+function hudFor(suppressHUD: boolean): (message: string) => Promise<void> {
+  return async (message) => {
+    if (suppressHUD) return;
+    try {
+      await showHUD(message);
+    } catch (error) {
+      logger.warn(`[ipatool] Could not show HUD "${message}":`, error);
+    }
+  };
+}
+
+/**
+ * Runs attempts until one finishes, fails terminally, or retries run out.
+ *
+ * This replaced retrying by calling `downloadApp` from INSIDE the child's
+ * `close` listener. An EventEmitter does not await its listeners, so when that
+ * nested call rejected, the rejection went nowhere: the original download's
+ * promise stayed pending forever, its `finally` never released the lock, and
+ * Raycast's unhandled-rejection handler then killed the command. A plain loop
+ * has none of that — every outcome is a return value.
+ */
+async function runDownloadAttempts(
+  ctx: DownloadContext,
+  firstAttempt: number,
+  firstDelay: number,
+): Promise<string | null | undefined> {
+  let policy: AttemptPolicy = {
+    attempt: firstAttempt,
+    retryDelay: firstDelay,
+    allowPurchase: true,
+    allowIntegrityRetry: firstAttempt === 0,
+  };
+
+  for (let isFirst = true; ; isFirst = false) {
+    // A retry can follow a long backoff, and every retry used to re-enter
+    // `downloadApp` and re-check the session; keep that.
+    if (!isFirst && !(await ensureAuthenticated())) return null;
+
+    const outcome = await runDownloadAttempt(ctx, policy);
+    if (outcome.kind === "done") return outcome.filePath;
+    if (outcome.kind === "failed") throw outcome.error;
+
+    if (outcome.waitMs > 0) {
+      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, outcome.waitMs));
+    }
+    policy = {
+      attempt: outcome.nextAttempt,
+      retryDelay: outcome.nextDelay,
+      allowPurchase: policy.allowPurchase && !outcome.afterPurchase,
+      allowIntegrityRetry: policy.allowIntegrityRetry && !outcome.afterCorruption,
+    };
+  }
+}
+
+/**
+ * One ipatool run, in its own operation directory, which is always deleted when
+ * the attempt ends. A successful attempt has already renamed its artifact out
+ * of it by then. Never throws: every failure is an `AttemptOutcome`.
+ */
+async function runDownloadAttempt(ctx: DownloadContext, policy: AttemptPolicy): Promise<AttemptOutcome> {
+  const { bundleId, appName, platform, price } = ctx;
+  const hud = hudFor(ctx.suppressHUD);
+  let operationDir: string | undefined;
+
+  try {
+    // A fresh directory per attempt also replaces the sweep that used to run
+    // before every attempt: ipatool resumes from a leftover `.ipa.tmp` and a
+    // corrupted one produced "negative offset" errors. A new directory has no
+    // leftovers to resume from.
+    operationDir = createOperationDirectory(ctx.downloadsDir);
+    registerTempFile(operationDir);
+
+    const retryInfo = policy.attempt > 0 ? ` (Attempt ${policy.attempt + 1}/${MAX_RETRIES + 1})` : "";
+    await hud(`Downloading ${appName || bundleId}${retryInfo}...`);
+
+    // Check if the app is paid based on price value
+    const isPaidApp = price && parseFloat(price) > 0;
+    logger.log(
+      `[ipatool] Downloading app: ${appName || bundleId}, isPaidApp: ${isPaidApp}, price: ${price}${retryInfo}`,
+    );
+
+    const args = ["download", "-b", bundleId, "-o", operationDir, "--format", "json", "--non-interactive", "--verbose"];
+
+    // Only sent when it is not the default. Omitting it leaves ipatool's own
+    // platform resolution in charge, which is what has always worked for
+    // universal and iPad-only apps (Procreate is iPad-only and downloads fine
+    // today with no flag) — forcing `--platform iphone` onto those would be a
+    // behavior change dressed up as explicitness.
+    if (platform !== "iphone") {
+      logger.log(`[ipatool] Adding --platform ${platform}`);
+      args.push("--platform", platform);
+    }
+
+    // Add purchase flag for paid apps
+    if (isPaidApp) {
+      logger.log("Adding --purchase flag for paid app");
+      args.push("--purchase");
+    }
+
+    logger.log(`[ipatool] Executing download command: ${IPATOOL_PATH} ${args.join(" ")}`);
+
+    const child = await createSecureIpatoolProcess(args, {
+      timeout: ctx.maxDownloadTimeout,
+      allowedCommands: ["download"],
+    });
+    const run = await watchDownload(child, ctx, operationDir);
+    return await interpretDownload(ctx, policy, run, operationDir);
+  } catch (error) {
+    logger.error(`[ipatool] Download attempt failed:`, error);
+    return { kind: "failed", error: error instanceof Error ? error : new Error(String(error)) };
+  } finally {
+    if (operationDir) {
+      removeOperationDirectory(operationDir);
+      unregisterTempFile(operationDir);
+    }
+  }
+}
+
+/**
+ * Feeds progress and the stall watchdog while ipatool runs, and resolves once,
+ * when the child is gone.
+ *
+ * The watchdog only STOPS the writer. It never settles the attempt and never
+ * touches files; the `close` that follows is the single place the attempt ends.
+ * It used to register a second `close` listener that rejected while the first
+ * one went on to retry or rename, so one stalled download could be reported as
+ * stalled AND finish publishing its file afterwards.
+ */
+function watchDownload(child: ChildProcess, ctx: DownloadContext, operationDir: string): Promise<DownloadRun> {
+  const { bundleId, appName, layout, expectedSizeBytes } = ctx;
+  const hud = hudFor(ctx.suppressHUD);
+
+  return new Promise<DownloadRun>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let stalled = false;
+    let lastProgress = 0;
+    let lastReportedSize = 0;
+    // Liveness fingerprint, separate from lastReportedSize: the sorted
+    // `name:size` of every file in the operation directory. ANY difference — a
+    // file growing, appearing, shrinking or being deleted — is proof the
+    // writer is alive, so every phase resets the stall timer even when the
+    // percentage does not move.
+    //
+    // This is deliberately NOT a monotonic byte watermark. A watermark only
+    // rises, so the phase where temps COLLAPSE into the final artifact (macOS:
+    // encrypted + decrypted, ~2x, becoming a 1x `.pkg`) reduces the total and
+    // therefore registers as no progress at all — the stall timer would then
+    // run unreset through finalization.
+    let lastFingerprint = "";
+    let stallTimer: NodeJS.Timeout | undefined;
+
+    const finish = (run: DownloadRun) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stallTimer);
+      clearInterval(progressCheckInterval);
+      resolve(run);
+    };
+
+    const onStall = () => {
+      stalled = true;
+      clearInterval(progressCheckInterval);
+      logger.error(`[ipatool] Download stalled after ${ctx.maxStallTimeout / 1000} seconds without progress.`);
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (settled) return;
+        logger.log(`[ipatool] Stalled process ignored SIGTERM, escalating to SIGKILL`);
+        child.kill("SIGKILL");
+        // If `close` still never arrives (something holding ipatool's pipes
+        // open), end the attempt anyway rather than hang. That is safe only
+        // because the operation directory is private: a writer we failed to
+        // reap can keep writing, but into a directory nothing else reads, and
+        // it is deleted with the attempt.
+        setTimeout(() => finish({ type: "close", code: null, signal: "SIGKILL", stdout, stderr, stalled }), 2000);
+      }, 5000);
+    };
+
+    const resetStallTimer = () => {
+      if (stalled || settled) return;
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(onStall, ctx.maxStallTimeout);
+    };
+
+    logger.log(
+      `[ipatool] Starting progress tracking interval. expectedSizeBytes: ${expectedSizeBytes}, bundleId: ${bundleId}`,
+    );
+
+    // Declared after `finish`/`onStall`, which close over it; neither can run
+    // before this line, because the stall timer is first armed below.
+    const progressCheckInterval = setInterval(() => {
+      try {
+        // ipatool never writes the final artifact straight through, and the
+        // intermediate layout differs per platform (see
+        // `utils/download-layout.ts`):
+        //
+        //   iOS    bytes land in `.ipa.tmp`, then the real `.ipa` is
+        //          assembled from it (the repack that injects artwork)
+        //   macOS  bytes land in `.pkg.ipatool-encrypted`, then
+        //          `.pkg.ipatool-decrypted` appears ALONGSIDE it, then
+        //          both collapse into the final `.pkg`
+        //
+        // Matching only the final suffix therefore saw NOTHING for the whole
+        // network phase and reported no progress at all. Several of these
+        // files exist at once, so watch them ALL and drive the percentage off
+        // whichever is furthest along.
+        //
+        // The operation directory holds only this attempt's files, so there is
+        // no bundle prefix to match and nothing another download writes can be
+        // mistaken for this one's liveness.
+        let tmpSize = 0;
+        let finalSize = 0;
+        const fingerprintParts: string[] = [];
+        for (const file of fs.readdirSync(operationDir)) {
+          // No temp suffix ENDS with the final suffix (`.ipa.tmp` and
+          // `.pkg.ipatool-encrypted` both extend it rather than closing with
+          // it), so the two tests are disjoint and the order is for
+          // readability, not correctness. `download-layout.test.mjs` asserts
+          // that disjointness against real observed filenames.
+          const isTmp = layout.temps.some((suffix) => file.endsWith(suffix));
+          if (!isTmp && !file.endsWith(layout.final)) continue;
+          const size = fs.statSync(path.join(operationDir, file)).size;
+          if (isTmp) tmpSize = Math.max(tmpSize, size);
+          else finalSize = Math.max(finalSize, size);
+          fingerprintParts.push(`${file}:${size}`);
+        }
+
+        // Any change in ANY of those files is liveness, even when it buys no
+        // percentage points. The iOS repack writes only the final `.ipa` while
+        // the `.tmp` sits at full size, and the macOS decrypt writes only
+        // `.pkg.ipatool-decrypted` while the encrypted file sits at full size —
+        // scoring either as "no progress" let the stall timer kill a download
+        // that was seconds from succeeding.
+        const fingerprint = fingerprintParts.sort().join("|");
+        if (fingerprint !== lastFingerprint) {
+          lastFingerprint = fingerprint;
+          resetStallTimer();
+        }
+
+        // Percentage needs a denominator; liveness above does not. An app
+        // whose iTunes lookup returned no `fileSizeBytes`, or a retry (which
+        // does not re-fetch it), therefore still keeps the stall timer fed
+        // instead of being killed mid-download.
+        if (!expectedSizeBytes) return;
+
+        const currentSize = Math.max(tmpSize, finalSize);
+        if (currentSize > 0) {
+          // Only report progress if file size has changed significantly (every 512KB or at completion)
+          // Using 512KB threshold to catch progress on faster downloads
+          const shouldReport = currentSize > lastReportedSize + 512 * 1024 || currentSize === expectedSizeBytes;
+
+          if (shouldReport) {
+            const progress = Math.min(currentSize / expectedSizeBytes, 1.0);
+
+            if (progress > lastProgress) {
+              lastProgress = progress;
+
+              // Call progress callback if provided (callback will handle logging)
+              ctx.onProgress?.(progress);
+
+              void hud(`Downloading ${appName || bundleId}... ${Math.round(progress * 100)}%`);
+
+              lastReportedSize = currentSize;
+            }
+          }
+        }
+      } catch (error) {
+        logger.warn(`[ipatool] Error checking download progress:`, error);
+      }
+    }, 250); // Check every 250ms for more responsive progress updates
+
+    resetStallTimer(); // Initialize stall timer
+
+    child.stdout?.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      logger.log(`[ipatool] stdout: ${chunk.trim()}`);
+    });
+
+    child.stderr?.on("data", (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      logger.error(`[ipatool] stderr: ${chunk.trim()}`);
+
+      // Log specific error types for better debugging
+      if (chunk.includes("network") || chunk.includes("connection") || chunk.includes("tls")) {
+        logger.error(`[ipatool] Network-related error detected: ${chunk.trim()}`);
+      } else if (chunk.includes("authentication") || chunk.includes("login")) {
+        logger.error(`[ipatool] Authentication error detected: ${chunk.trim()}`);
+      }
+    });
+
+    // Node emits (code, signal) on close — when the process exits normally,
+    // `code` is the exit status and `signal` is null; when it's killed by a
+    // signal (timeout watchdog, stall watchdog, OS kill, Raycast reload),
+    // `code` is null and `signal` carries the signal name (e.g. "SIGTERM").
+    child.on("close", (code, signal) => {
+      logger.log(`[ipatool] Download process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
+
+      // Land on 100%. The denominator is Apple's `fileSizeBytes`, which is the
+      // INSTALLED size, not the archive — Muse reports 111 MB and ships an 85
+      // MB IPA — so the poller's last honest reading is whatever fraction the
+      // IPA happens to be of that (76%, there). The bar then just stops.
+      // ipatool exiting 0 is the only real completion signal we get, so use it.
+      if (code === 0 && lastProgress < 1) {
+        lastProgress = 1;
+        try {
+          ctx.onProgress?.(1);
+        } catch (error) {
+          // A listener's callback throwing must not stop the attempt settling.
+          logger.warn(`[ipatool] Progress callback threw:`, error);
+        }
+        void hud(`Downloading ${appName || bundleId}... 100%`);
+      }
+
+      finish({ type: "close", code, signal, stdout, stderr, stalled });
+    });
+
+    child.on("error", (error) => {
+      finish({ type: "error", error, stdout, stderr });
+    });
+  });
+}
+
+/**
+ * Decides what a finished ipatool run means: publish, retry, or fail. Runs only
+ * after the child is gone, so nothing here races the writer.
+ */
+async function interpretDownload(
+  ctx: DownloadContext,
+  policy: AttemptPolicy,
+  run: DownloadRun,
+  operationDir: string,
+): Promise<AttemptOutcome> {
+  const { bundleId, appName, appVersion, price, platform, layout } = ctx;
+  const { attempt, retryDelay } = policy;
+  const hud = hudFor(ctx.suppressHUD);
+
+  if (run.type === "error") {
+    const { error } = run;
+    logger.error(`[ipatool] Process error during download: ${error.message}`);
+
+    // Check if this is a TLS error or other network error that might be transient
+    const isTlsError =
+      error.message.includes("tls: bad record MAC") ||
+      error.message.includes("network error") ||
+      error.message.includes("connection reset");
+
+    // If we have retries left and it's a TLS error, retry with backoff
+    if (isTlsError && attempt < MAX_RETRIES) {
+      logger.log(
+        `[ipatool] TLS/Network error detected in process error handler. Retrying in ${retryDelay}ms (Attempt ${attempt + 1}/${MAX_RETRIES})`,
+      );
+      await hud(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
+      return { kind: "retry", waitMs: retryDelay, nextAttempt: attempt + 1, nextDelay: retryDelay * 1.5 };
+    }
+
+    await hud("Download failed");
+    // shouldThrow=false: the outcome carries the error to the caller.
+    await handleDownloadError(error, "download app", "downloadApp", false);
+    return { kind: "failed", error };
+  }
+
+  const { code, signal, stdout, stderr } = run;
+
+  // Only log full output in development or when there's an error
+  if (process.env.NODE_ENV === "development" || code !== 0) {
+    logger.log(`[ipatool] Full stdout: ${stdout}`);
+    logger.log(`[ipatool] Full stderr: ${stderr}`);
+  }
+
+  if (code !== 0) {
+    logger.error(
+      `[ipatool] Download failed with code ${code}${signal ? ` (signal: ${signal})` : ""}. Error: ${stderr}`,
+    );
+    logger.error(`[ipatool] Full stdout content: "${stdout}"`);
+
+    // The watchdog killed it. Report that, rather than letting the killed
+    // process's stderr be classified as a network error and retried.
+    if (run.stalled) {
+      return { kind: "failed", error: new Error("Download stalled.") };
+    }
+
+    // Parse JSON output from stdout to get specific error information.
+    // If the process was killed by a signal, code is null and we
+    // describe what actually happened instead of "code null".
+    const errorMessage = signal
+      ? signal === "SIGTERM"
+        ? `Download stopped before completing (terminated). This usually means it stalled, timed out, or was interrupted.`
+        : `Download stopped before completing (signal: ${signal}).`
+      : `Process exited with code ${code}`;
+    let specificError = "";
+
+    try {
+      // ipatool often outputs multiple JSON lines, check each line
+      const lines = stdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim());
+      for (const line of lines) {
+        if (line.includes('"error"')) {
+          const jsonData = JSON.parse(line);
+          if (jsonData.error) {
+            specificError = jsonData.error;
+            logger.error(`[ipatool] Parsed error from JSON: ${specificError}`);
+            break;
+          }
+        }
+      }
+    } catch (parseError) {
+      logger.error(`[ipatool] Could not parse JSON from stdout: ${parseError}`);
+    }
+
+    // Check if this is a network error that might be transient.
+    //
+    // The STRUCTURED error wins. `--verbose` makes ipatool dump the whole HTTP
+    // conversation to stderr, and a single `Connection:` response header was
+    // enough to classify a flat refusal — a platform mismatch, say — as
+    // transient and retry it three times before reporting the wrong cause.
+    // Only fall back to scanning the raw stream when ipatool gave us nothing
+    // structured.
+    const networkSignals = ["tls", "network", "connection", "bad record mac"];
+    const isNetworkError = specificError
+      ? networkSignals.some((networkSignal) => specificError.toLowerCase().includes(networkSignal))
+      : networkSignals.some((networkSignal) => stderr.toLowerCase().includes(networkSignal));
+
+    if (isNetworkError && attempt < MAX_RETRIES) {
+      logger.log(
+        `[ipatool] Network/TLS error detected: "${specificError}". Retrying in ${retryDelay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
+      );
+      await hud(`Network error. Retrying in ${Math.round(retryDelay / 1000)}s...`);
+      return {
+        kind: "retry",
+        waitMs: retryDelay,
+        nextAttempt: attempt + 1,
+        nextDelay: Math.min(retryDelay * 1.5, MAX_RETRY_DELAY),
+      };
+    }
+
+    // Use precise ipatool error analysis for categorization.
+    //
+    // Two bugs lived in the old `stderr || specificError || errorMessage`:
+    // stderr is essentially never empty under `--verbose`, so the error ipatool
+    // actually reported in stdout JSON was always discarded; and passing that
+    // same stderr as BOTH arguments made the analyzer concatenate it with
+    // itself ("invalid response invalid response"), which fails every anchored
+    // pattern and degraded a precise classification into a generic one.
+    const primaryError = specificError || stderr || errorMessage;
+    const supportingStderr = stderr && stderr !== primaryError ? stderr : undefined;
+    const errorAnalysis = analyzeIpatoolError(primaryError, supportingStderr);
+
+    // Check if this is a timeout/stall error that can be retried
+    if (errorAnalysis.errorType === "timeout" && attempt < MAX_RETRIES) {
+      logger.log(
+        `[ipatool] Timeout/stall error detected. Retrying in ${retryDelay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
+      );
+      await hud(`Download stalled. Retrying in ${Math.round(retryDelay / 1000)}s...`);
+      return {
+        kind: "retry",
+        waitMs: retryDelay,
+        nextAttempt: attempt + 1,
+        nextDelay: Math.min(retryDelay * 1.5, MAX_RETRY_DELAY),
+      };
+    }
+
+    // Retry for rate limiting or maintenance downtime with extended backoff
+    if (
+      (errorAnalysis.errorType === "rate_limited" || errorAnalysis.errorType === "maintenance") &&
+      attempt < MAX_RETRIES
+    ) {
+      const baseDelay = Math.max(retryDelay, 5000);
+      const label = errorAnalysis.errorType === "rate_limited" ? "Rate limited" : "App Store maintenance";
+      logger.log(
+        `[ipatool] ${label} detected. Retrying in ${Math.round(baseDelay / 1000)}s (attempt ${attempt + 1}/${MAX_RETRIES})`,
+      );
+      await hud(
+        `${errorAnalysis.errorType === "rate_limited" ? "Rate limited" : "Maintenance"} – retrying in ${Math.round(baseDelay / 1000)}s...`,
+      );
+      return {
+        kind: "retry",
+        waitMs: baseDelay,
+        nextAttempt: attempt + 1,
+        nextDelay: Math.min(Math.floor(baseDelay * 1.5), 30000),
+      };
+    }
+
+    // Apple answered 200 with an empty product payload for this specific app.
+    // Terminal and app-specific — typed so the caller says so rather than
+    // re-deriving it from a wrapped string.
+    if (errorAnalysis.errorType === "apple_empty_response") {
+      logger.error(`[ipatool] Apple returned an empty payload for ${appName || bundleId} — see majd/ipatool#538`);
+      return { kind: "failed", error: new AppleEmptyResponseError(errorAnalysis.userMessage) };
+    }
+
+    if (errorAnalysis.errorType === "apple_auth_gate") {
+      logger.error(`[ipatool] Apple auth gate hit for ${appName || bundleId}: ${errorAnalysis.userMessage}`);
+      return { kind: "failed", error: new AppleAuthGateError(errorAnalysis.userMessage) };
+    }
+
+    // Use the analyzed error message and routing. Several userMessages open
+    // with a literal "App" standing in for the app's name — swap in the real
+    // one.
+    //
+    // ANCHORED AND WORD-BOUNDED ON PURPOSE. A bare `.replace("App", name)`
+    // matches the first "App" ANYWHERE, including inside "Apple": it turned
+    // "unexpected response from Apple (HTTP 403)" into `unexpected response
+    // from "Tolan: Your Friendly Guide"le (HTTP 403)`. The `(?! Store)` guard
+    // keeps "App Store is temporarily unavailable" intact — there "App" names
+    // Apple's store, not this app.
+    let finalErrorMessage = errorAnalysis.userMessage.includes(appName || bundleId)
+      ? errorAnalysis.userMessage
+      : // Callback form on purpose: a plain string replacement would let `$&` /
+        // `$'` inside an app NAME be interpreted as replacement metacharacters
+        // and echo the match back instead of the name.
+        errorAnalysis.userMessage.replace(/^App(?! Store)\b/, () => `"${appName || bundleId}"`);
+
+    // Check if this is a license required error for a free app
+    if (errorAnalysis.isLicenseRequired && isFreeApp(price)) {
+      if (isAppleBuiltInApp(bundleId)) {
+        logger.log(
+          `[ipatool] License required for built-in Apple app ${appName || bundleId}; the Store will not license these to ipatool.`,
+        );
+
+        // Typed, so the caller states the reason plainly rather than letting
+        // the generic analyzer wrap it as "Download failed:".
+        return { kind: "failed", error: new BuiltInAppError(builtInAppMessage(appName || bundleId)) };
+      } else if (!policy.allowPurchase) {
+        // Already purchased once during this download and Apple still says a
+        // license is required. Report it instead of buying in a loop.
+        logger.log(`[ipatool] License still required for ${appName || bundleId} after a successful purchase`);
+      } else {
+        logger.log(`[ipatool] License required for free app ${appName || bundleId}. Attempting automatic purchase...`);
+
+        try {
+          const purchaseResult = await purchaseApp(bundleId, appName, { suppressHUD: ctx.suppressHUD, platform });
+
+          if (purchaseResult.success) {
+            logger.log(`[ipatool] License purchase successful for ${appName || bundleId}. Retrying download...`);
+            await hud(`License obtained. Retrying download...`);
+
+            // A fresh start, inside the SAME lock this download already holds.
+            return {
+              kind: "retry",
+              waitMs: 0,
+              nextAttempt: 0,
+              nextDelay: INITIAL_RETRY_DELAY,
+              afterPurchase: true,
+            };
+          } else {
+            logger.log(
+              `[ipatool] License purchase failed for ${appName || bundleId} (${purchaseResult.errorType}). Proceeding with error handling.`,
+            );
+            await hud(`Failed to obtain license for ${appName || bundleId}`);
+
+            // Surface the purchase error's own classification rather than
+            // guessing. Rate limiting (ipatool#480 plist error) is the common
+            // case for some apps and is transient.
+            if (purchaseResult.errorType === "rate_limited") {
+              finalErrorMessage = `Could not get a license for "${appName || bundleId}" — Apple rate-limited the request. Please wait a few minutes and try again.`;
+            } else if (purchaseResult.userMessage) {
+              finalErrorMessage = `Could not get a license for "${appName || bundleId}": ${purchaseResult.userMessage}`;
+            } else {
+              finalErrorMessage = `License purchase failed for free app "${appName || bundleId}". This may be due to App Store restrictions.`;
+            }
+          }
+        } catch (purchaseError) {
+          // Typed errors pass through unchanged so the hook's typed branches
+          // see them instead of a wrapped string: Apple's gate and empty
+          // payload are terminal, an auth failure (expired token, changed
+          // password) redirects to sign-in, and a pre-release app gets the
+          // specific "Not Released Yet" toast.
+          if (purchaseError instanceof AppleEmptyResponseError) {
+            logger.error(`[ipatool] Apple returned an empty payload purchasing ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          if (purchaseError instanceof AppleAuthGateError) {
+            logger.error(`[ipatool] Apple auth gate during license purchase for ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          if (purchaseError instanceof Needs2FAError) {
+            logger.error(`[ipatool] 2FA required during license purchase for ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          if (purchaseError instanceof Error && purchaseError.name === "NeedsLoginError") {
+            logger.error(`[ipatool] Auth required during license purchase for ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          if (purchaseError instanceof NotYetReleasedError) {
+            logger.log(`[ipatool] Pre-release surfaced during license purchase for ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          logger.error(`[ipatool] Error during license purchase attempt:`, purchaseError);
+          await hud(`License purchase error for ${appName || bundleId}`);
+
+          // Update the error message to include the purchase error details
+          const purchaseErrorMsg = purchaseError instanceof Error ? purchaseError.message : String(purchaseError);
+          finalErrorMessage = `License purchase failed for free app "${appName || bundleId}": ${purchaseErrorMsg}`;
+        }
+      }
+    }
+
+    // Apple expired the session token, ipatool re-signed in with the stored
+    // password, and Apple answered with a 2FA prompt on the user's devices.
+    // The code on screen finishes that sign-in, so this routes to the code
+    // form, not the password form. The message must not contain
+    // "authentication required": `handleAuthError` treats that phrase as bad
+    // credentials and deletes the stored password the code form needs.
+    if (errorAnalysis.is2FARequired) {
+      logger.log(`[ipatool] Apple asked for a 2FA code while downloading ${appName || bundleId}`);
+      return { kind: "failed", error: new Needs2FAError(TWO_FACTOR_PROMPT_MESSAGE) };
+    }
+
+    // Route to appropriate error handler based on analysis
+    if (errorAnalysis.isAuthError) {
+      // NeedsLoginError lets the hook handle it with navigation
+      return { kind: "failed", error: new NeedsLoginError(finalErrorMessage) };
+    }
+    if (errorAnalysis.errorType === "not_yet_released") {
+      // Pre-release / Coming Soon: surface as typed error so the hook can
+      // show "Not Released Yet" without re-parsing the wrapped message.
+      return { kind: "failed", error: new NotYetReleasedError(finalErrorMessage) };
+    }
+    // shouldThrow=false: the outcome carries the error to the caller.
+    await handleDownloadError(new Error(finalErrorMessage), "download app", "downloadApp", false);
+    return { kind: "failed", error: new Error(finalErrorMessage) };
+  }
+
+  // Try to find a JSON object in the output
+  let filePath = "";
+
+  // Look for JSON object in the output
+  const lines = stdout.trim().split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.startsWith("{") && line.endsWith("}")) {
+      try {
+        const jsonOutput = safeJsonParse<{ output: string }>(line, { output: "" });
+        if (jsonOutput.output) {
+          filePath = jsonOutput.output;
+          logger.log(`[ipatool] Found file path in JSON output: ${filePath}`);
+          break;
+        }
+      } catch (e) {
+        logger.error("Error parsing JSON line:", e);
+        // Continue to next line if this one fails
+      }
+    }
+  }
+
+  // If no filePath found in JSON, try to extract it from the stdout
+  if (!filePath) {
+    logger.log("[ipatool] No JSON output found, trying to extract file path from stdout using regex patterns");
+    filePath = extractFilePath(stdout, "");
+  }
+
+  // Keep a parsed path only if it names a finished artifact that exists. The
+  // regex extractor is `.ipa`-only and matches INSIDE `.ipatool`, so a Mac line
+  // like `saved to …/a.pkg.ipatool-encrypted` yields a bogus `…/a.pkg.ipa`.
+  // Accepting it skipped the scan below and threw away the real `.pkg`.
+  if (filePath && !(filePath.endsWith(layout.final) && fs.existsSync(filePath))) {
+    logger.warn(`[ipatool] Ignoring parsed path that is not a finished artifact: ${filePath}`);
+    filePath = "";
+  }
+
+  // Last resort: whatever finished artifact is in the operation directory. It
+  // holds only this attempt's output, so — unlike scanning the shared downloads
+  // directory, as this used to — it cannot adopt an older download of the same
+  // app, or a different app's file, as this one's result.
+  if (!filePath) {
+    try {
+      const artifact = fs.readdirSync(operationDir).find((file) => file.endsWith(layout.final));
+      if (artifact) {
+        filePath = path.join(operationDir, artifact);
+        logger.log(`[ipatool] Found the finished artifact in the operation directory: ${filePath}`);
+      }
+    } catch (e) {
+      logger.error("Error reading the operation directory:", e);
+    }
+  }
+
+  logger.log(`[ipatool] Original downloaded file path: ${filePath}`);
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    logger.error(`[ipatool] ipatool reported success but no downloaded file was found`);
+    return { kind: "done", filePath: undefined };
+  }
+
+  // Verify file integrity before publishing
+  logger.log(`[ipatool] Starting file integrity verification for ${appName || bundleId}`);
+
+  // Parse any JSON metadata from stdout for integrity verification
+  let ipatoolJsonData = null;
+  try {
+    for (const line of stdout.trim().split("\n")) {
+      if (line.trim().startsWith("{") && line.trim().endsWith("}")) {
+        const parsedJson = JSON.parse(line);
+        if (parsedJson && (parsedJson.fileSize || parsedJson.checksum)) {
+          ipatoolJsonData = parsedJson;
+          logger.log(`[ipatool] Found metadata for integrity check:`, ipatoolJsonData);
+          break;
+        }
+      }
+    }
+  } catch {
+    logger.log(`[ipatool] No valid JSON metadata found for integrity verification`);
+  }
+
+  const integrityResult = await verifyFileIntegrity(filePath, appName, ipatoolJsonData);
+
+  if (!integrityResult.isValid) {
+    // The corrupted file goes with the operation directory; no unlink needed.
+    logger.error(`[ipatool] File integrity verification failed: ${integrityResult.errorMessage}`);
+    await handleDownloadError(
+      new Error(`Downloaded file is corrupted: ${integrityResult.errorMessage}`),
+      "verify downloaded file",
+      "downloadApp",
+      false,
+    );
+
+    // Optional automatic retry (once) for corrupted files
+    if (integrityResult.shouldRetry && policy.allowIntegrityRetry) {
+      logger.log(`[ipatool] Attempting automatic retry for corrupted file`);
+      await hud(`File corrupted. Retrying download...`);
+      return {
+        kind: "retry",
+        waitMs: 2000,
+        nextAttempt: 1,
+        nextDelay: INITIAL_RETRY_DELAY,
+        afterCorruption: true,
+      };
+    }
+
+    return { kind: "failed", error: new Error(`File integrity verification failed: ${integrityResult.errorMessage}`) };
+  }
+
+  logger.log(`[ipatool] ✓ File integrity verification passed for ${appName || bundleId}`);
+
+  // Publish: move the artifact out of the operation directory into the
+  // downloads directory. Both are on one filesystem, so this is a single atomic
+  // rename — never a copy — and it replaces an existing file of the same name
+  // in one step, where the old unlink-then-rename left a window with neither.
+  const currentFileName = path.basename(filePath);
+  let publishedName = currentFileName;
+  if (appName && appVersion) {
+    // Clean the app name by removing marketing terms, then replace invalid
+    // filename characters with a dash
+    const sanitizedAppName = cleanAppNameForFilename(appName).replace(/[/\\?%*:|"<>]/g, "-");
+    // Taken from the artifact, not the platform: a `.pkg` must not be renamed
+    // to `.ipa`, and a future platform cannot get it wrong.
+    const ext = path.extname(currentFileName) || layout.final;
+    publishedName = `${sanitizedAppName} ${appVersion}${ext}`;
+  }
+
+  for (const candidate of new Set([publishedName, currentFileName])) {
+    const destination = path.join(ctx.downloadsDir, candidate);
+    try {
+      if (fs.existsSync(destination)) {
+        logger.warn(`[ipatool] Replacing existing file: ${destination}`);
+      }
+      fs.renameSync(filePath, destination);
+      logger.log(`[ipatool] Published ${appName || bundleId} to: ${destination}`);
+      // Announced only now. It used to fire as soon as ipatool exited, before
+      // the file was found, verified, or saved — so a corrupted or unsaveable
+      // download said "complete" and then failed.
+      await hud("Download complete");
+      return { kind: "done", filePath: destination };
+    } catch (e) {
+      logger.error(`[ipatool] Could not publish to ${destination}:`, e);
+    }
+  }
+
+  // Neither name worked. The file is about to be deleted with the operation
+  // directory, so returning its path would hand the caller a file that is gone.
+  return { kind: "failed", error: new Error(`Could not save the downloaded file to ${ctx.downloadsDir}`) };
+}
+
 /**
  * Get detailed information about an app
  * @param bundleId Bundle ID of the app
@@ -1699,7 +1946,7 @@ export async function getAppDetails(bundleId: string) {
     const isAuthenticated = await ensureAuthenticated();
     if (!isAuthenticated) {
       await handleAuthError(
-        new Error("Authentication failed during app details lookup. Please check your Apple ID credentials."),
+        new Error("Authentication required for app details lookup. Sign in with your Apple ID."),
         false,
       );
       return null;

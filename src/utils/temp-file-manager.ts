@@ -1,5 +1,4 @@
 import fs from "fs";
-import path from "path";
 import { logger } from "@chrismessina/raycast-logger";
 import { getConfig } from "../config";
 
@@ -10,8 +9,9 @@ let tempFiles: string[] = [];
 let exitHandlerRegistered = false;
 
 /**
- * Registers a temporary file path for tracking and cleanup
- * @param filePath - The path to the temporary file to track
+ * Registers a temporary file or directory for last-chance cleanup on exit
+ * @param filePath - The path to track. Downloads register their whole operation
+ *   directory, which is removed recursively.
  */
 export function registerTempFile(filePath: string): void {
   if (!tempFiles.includes(filePath)) {
@@ -47,9 +47,10 @@ export function cleanupTempFiles(): void {
 
   for (const filePath of tempFiles) {
     try {
-      // Check if file exists before attempting to delete
+      // Check if file exists before attempting to delete. `rmSync` rather than
+      // `unlinkSync`: a download registers its operation DIRECTORY.
       if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+        fs.rmSync(filePath, { recursive: true, force: true });
         logger.log(`[TempFileManager] Successfully deleted temp file: ${filePath}`);
       } else {
         logger.log(`[TempFileManager] Temp file already deleted or does not exist: ${filePath}`);
@@ -66,58 +67,19 @@ export function cleanupTempFiles(): void {
 }
 
 /**
- * Cleans up specific temporary files matching patterns (.partial, .ipa, *.tmp)
- * @param directory - Directory to search for temp files (optional, uses tempFiles if not provided)
- * @param namePrefix - Only delete files starting with this prefix. Downloads share
- *   one directory, so an unscoped sweep deletes whatever ANOTHER download is
- *   currently writing — and since ipatool 2.6.0 every download has a live
- *   `.ipa.tmp` for its whole network phase, which is exactly what this sweep
- *   targets. Callers that know whose files they are should say so.
- */
-export function cleanupTempFilesByPattern(directory?: string, namePrefix?: string): void {
-  if (directory) {
-    logger.log(
-      `[TempFileManager] Cleaning up temp files by pattern in directory: ${directory}${namePrefix ? ` (prefix: ${namePrefix})` : ""}`,
-    );
-
-    try {
-      const files = fs.readdirSync(directory).filter((file) => !namePrefix || file.startsWith(namePrefix));
-      const tempPatterns = [".partial", ".tmp"];
-      const ipaPartialPattern = /\.ipa\.partial$/;
-
-      for (const file of files) {
-        const filePath = path.join(directory, file);
-        const shouldDelete =
-          tempPatterns.some((pattern) => file.endsWith(pattern)) ||
-          ipaPartialPattern.test(file) ||
-          file.endsWith(".tmp");
-
-        if (shouldDelete) {
-          try {
-            fs.unlinkSync(filePath);
-            logger.log(`[TempFileManager] Deleted pattern-matched temp file: ${filePath}`);
-          } catch (error) {
-            logger.error(`[TempFileManager] Error deleting pattern-matched temp file ${filePath}:`, error);
-          }
-        }
-      }
-    } catch (error) {
-      logger.error(`[TempFileManager] Error reading directory ${directory} for temp file cleanup:`, error);
-    }
-  } else {
-    // Use registered temp files
-    cleanupTempFiles();
-  }
-}
-
-/**
- * Handles cleanup on process rejection, timeout, or error
- * @param error - The error that triggered the cleanup
+ * Logs a process error. It no longer deletes anything.
+ *
+ * It used to run `cleanupTempFiles()`, which deletes EVERY registered path in
+ * this process — so an unrelated ipatool command failing (an auth command, via
+ * `executeSecureIpatoolCommand`) deleted the operation directory of a download
+ * still running in the same command. Each download now removes its own
+ * operation directory when its attempt ends; process-wide cleanup is only for
+ * process exit.
+ * @param error - The error that occurred
  * @param context - Context information about where the error occurred
  */
 export function handleProcessErrorCleanup(error: Error, context: string): void {
-  logger.error(`[TempFileManager] Process error in ${context}, performing cleanup:`, error);
-  cleanupTempFiles();
+  logger.error(`[TempFileManager] Process error in ${context}:`, error);
 }
 
 /**

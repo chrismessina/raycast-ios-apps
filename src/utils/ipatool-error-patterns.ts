@@ -44,8 +44,10 @@ export interface IpatoolErrorInfo {
     | "built_in_app" // Apple's own apps, which the Store never licenses to third-party clients
     | "apple_auth_gate" // Apple refuses the auth handshake; fixed by ipatool 2.4.0+ SAP-signed requests
     | "apple_empty_response" // HTTP 200 with an empty product payload for one specific app
+    | "platform_mismatch" // asked the wrong storefront for this app (e.g. a Mac app as iOS)
     | "regional_restriction"
     | "account_restriction"
+    | "purchase_refused" // Apple declined a free-app license with no reason given
     | "generic";
 }
 
@@ -100,10 +102,24 @@ export function analyzeIpatoolError(
   stderr?: string,
   context?: "auth" | "download" | "search",
 ): IpatoolErrorInfo {
+  // The primary error decides whenever it says something specific; stderr is
+  // consulted only when it does not. Appending stderr unconditionally let
+  // `--verbose`'s HTTP transcript outvote it — one `Connection: keep-alive`
+  // header turned a platform mismatch or an `app not found` into "network",
+  // and ANY trailing line broke the anchored `invalid response` match.
+  if (stderr?.trim()) {
+    const primary = analyzeIpatoolError(errorMessage, undefined, context);
+    if (primary.errorType !== "generic") return primary;
+  }
+
   const fullMessage = `${errorMessage.trim()} ${(stderr || "").trim()}`.trim().toLowerCase();
 
-  // 2FA Required - exact message from ipatool source
+  // 2FA Required - exact messages from ipatool source. `auth code is required`
+  // is `appstore.ErrAuthCodeRequired` itself, which reaches us bare when a
+  // download or list-versions finds the session token expired and ipatool's
+  // silent re-login with the stored password is answered with a 2FA prompt.
   if (
+    fullMessage.includes("auth code is required") ||
     fullMessage.includes("2fa code is required") ||
     fullMessage.includes("run the command again and supply a code using the") ||
     fullMessage.includes("auth-code") ||
@@ -114,7 +130,9 @@ export function analyzeIpatoolError(
       is2FARequired: true,
       isCredentialError: false,
       isLicenseRequired: false,
-      userMessage: "Two-factor authentication required. Please provide the 6-digit code from your trusted device.",
+      // Must not contain "authentication required": handleAuthError reads
+      // that phrase as bad credentials and deletes the saved password.
+      userMessage: "Apple needs a verification code. Enter the 6-digit code from your trusted device.",
       errorType: "2fa",
     };
   }
@@ -223,6 +241,30 @@ export function analyzeIpatoolError(
       isLicenseRequired: false,
       userMessage: "App requires purchase or is not available in your region.",
       errorType: "app_not_found",
+    };
+  }
+
+  // ipatool's catch-all when Apple answers a free-app license request with
+  // neither success nor a failure type (pkg/appstore/appstore_purchase.go,
+  // v2.7.0). Apple's own text is "An unknown error occurred. Try again later."
+  // On 2026-10-27 Instants failed this way and then downloaded on the next try,
+  // with no App Store visit, so it can be transient. Retry first.
+  // The second phrase is this branch's own userMessage: the download path
+  // wraps it into "Could not get a license for X: ..." and re-analyzes the text.
+  // A rate-limit signal in the same message wins; the rate_limited branch
+  // below is more specific than this catch-all.
+  if (
+    (fullMessage.includes("failed to purchase app") || fullMessage.includes("apple refused the license")) &&
+    !/too many requests|rate.limit|\b429\b/.test(fullMessage)
+  ) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "Apple refused the license. Try again.",
+      suggestedAction: "Retry",
+      errorType: "purchase_refused",
     };
   }
 
@@ -567,6 +609,26 @@ export function analyzeIpatoolError(
   // response" (majd/ipatool#538). Originally per-app; as of 2026-09-13 every
   // 2.5.0 download fails this way, and 2.6.0 downloads the same apps fine — so
   // the remedy is the upgrade, which the version gate normally catches first.
+  // Asking the wrong storefront for an app: ipatool fetches the package, then
+  // fails to validate it as the requested platform. A Mac app requested as iOS
+  // reports the xar container failing a ZIP read, which is why the zip wording
+  // is part of the signature rather than a separate network/corruption case.
+  //
+  // This should be unreachable now that the download path sends `--platform`,
+  // but it stays as the honest message for any platform we cannot download yet
+  // — without it this lands in the generic branch and puts raw Go text in a
+  // toast, which is exactly how it behaved before Mac support.
+  if (fullMessage.includes("failed to validate package platform")) {
+    return {
+      isAuthError: false,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "This app isn't available for the platform it was requested for.",
+      errorType: "platform_mismatch",
+    };
+  }
+
   // Checked LAST so a more specific signature always wins.
   // Anchored, not a bare substring: ipatool emits this as the WHOLE error, so
   // only the bare string or a `prefix: invalid response` wrapping counts. A

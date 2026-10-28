@@ -1,6 +1,7 @@
 // src/types.ts - Type definitions for the extension
 import path from "path";
 import { LoggerPreferences } from "@chrismessina/raycast-logger";
+import type { DownloadPlatform } from "./utils/download-layout";
 
 // =============================================================================
 // CORE APP DATA TYPES
@@ -39,6 +40,13 @@ export interface AppDetails {
   screenshotUrls?: string[];
   ipadScreenshotUrls?: string[];
   appletvScreenshotUrls?: string[];
+  /**
+   * Which App Store platform this record came from, derived from the iTunes
+   * `kind` field. Drives the `--platform` flag on download and the file layout
+   * the progress poller watches. Absent on records written before Mac support,
+   * which is why every consumer must treat `undefined` as "unknown", not "iOS".
+   */
+  platform?: DownloadPlatform;
 }
 
 /**
@@ -128,6 +136,13 @@ export interface IpaToolSearchApp {
   version: string;
   price: number;
   developer: string;
+  /**
+   * Platforms the title is available on, e.g. `["iphone", "ipad", "macos"]`.
+   * ipatool returns this on every search hit. It says where the app EXISTS, not
+   * which build to fetch — a universal app lists all three — so it is only
+   * decisive when iPhone is absent.
+   */
+  platforms?: string[];
 }
 
 /**
