@@ -726,6 +726,25 @@ function redactArgsForLogging(args: string[]): string[] {
 }
 
 /**
+ * Validate an ipatool invocation WITHOUT spawning it, for a caller that hands
+ * the command to the detached downloader. The same checks
+ * `createSecureIpatoolProcess` runs before it spawns.
+ * @throws Error when the arguments or the ipatool path are rejected
+ */
+export function prepareIpatoolInvocation(
+  args: string[],
+  options: Pick<CommandExecutionOptions, "allowedCommands"> = {},
+): [string, ...string[]] {
+  const sanitizedArgs = validateAndSanitizeArgs(args, options.allowedCommands || ALLOWED_IPATOOL_COMMANDS);
+  if (!sanitizedArgs) {
+    throw new Error(`Invalid arguments: ${redactArgsForLogging(args).join(" ")}`);
+  }
+  validateExecutablePath(IPATOOL_PATH);
+  logger.log(`[ipatool] Prepared detached command: ${IPATOOL_PATH} ${redactArgsForLogging(sanitizedArgs).join(" ")}`);
+  return [IPATOOL_PATH, ...sanitizedArgs];
+}
+
+/**
  * Create a secure spawn process for ipatool with proper cleanup
  * @param args Command arguments
  * @param options Spawn options

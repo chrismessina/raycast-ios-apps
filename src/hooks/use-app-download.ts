@@ -1,7 +1,8 @@
+import { isTerminal } from "@chrismessina/raycast-downloader";
 import { logger } from "@chrismessina/raycast-logger";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
-import { checkForExistingDownload, downloadApp } from "../ipatool";
+import { adoptDownload, checkForExistingDownload, downloadApp } from "../ipatool";
 import type { AppDetails } from "../types";
 import {
   AppleAuthGateError,
@@ -17,11 +18,22 @@ import {
 import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAuthError, handleDownloadError } from "../utils/error-handler";
 import { DownloadCanceledError } from "../utils/errors";
+import {
+  JobFinishedElsewhereError,
+  listIpaJobs,
+  UnpublishedDownloadError,
+  type IpaJobMeta,
+} from "../utils/ipa-download-job";
 import { analyzeIpatoolError, type IpatoolErrorInfo } from "../utils/ipatool-error-patterns";
 import { IpatoolSetupError } from "../utils/ipatool-validator";
-import { resolveDownloadPlatform } from "../utils/itunes-api";
+import {
+  convertIpaToolSearchAppToAppDetails,
+  convertITunesResultToAppDetails,
+  fetchITunesAppDetails,
+  resolveDownloadPlatform,
+} from "../utils/itunes-api";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
-import { useDownloadHistory } from "./use-download-history";
+import { appendToDownloadHistory, useDownloadHistory } from "./use-download-history";
 
 // Global download state to prevent concurrent downloads across all hook instances
 const globalDownloadState = {
@@ -63,6 +75,146 @@ const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> 
   purchase_refused: "License Refused",
 };
 
+// Bundles this command is already following, whether it started the download or
+// re-attached to one. A download is followed by exactly one watcher: a second
+// would see the first one's cleared status as a vanished download.
+const followedBundles = new Set<string>();
+
+/**
+ * Pick up downloads that were started by a window that has since closed. The
+ * download kept running without it; this follows each one to the end and
+ * publishes the file, because nothing else in a closed command can.
+ */
+async function reattachDetachedDownloads(onRecorded: () => Promise<void>) {
+  let jobs: ReturnType<typeof listIpaJobs>;
+  try {
+    jobs = listIpaJobs();
+  } catch (error) {
+    logger.warn(`[useAppDownload] Could not list detached downloads:`, error);
+    return;
+  }
+  for (const { status, meta } of jobs) {
+    if (followedBundles.has(meta.bundleId)) continue;
+    followedBundles.add(meta.bundleId);
+    void followDetachedDownload(meta, isTerminal(status.state), onRecorded).finally(() =>
+      followedBundles.delete(meta.bundleId),
+    );
+  }
+}
+
+/** What a job knows about its app, for a history entry when the catalog is unreachable. */
+function minimalAppDetails(meta: IpaJobMeta): AppDetails {
+  return {
+    ...convertIpaToolSearchAppToAppDetails({
+      id: 0,
+      bundleId: meta.bundleId,
+      name: meta.appName || meta.bundleId,
+      version: meta.appVersion,
+      price: Number(meta.price) || 0,
+      developer: "",
+    }),
+    id: "",
+    fileSizeBytes: meta.expectedSizeBytes ?? 0,
+    platform: meta.platform,
+  };
+}
+
+async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean, onRecorded: () => Promise<void>) {
+  const name = meta.appName || meta.bundleId;
+  const cancel = new AbortController();
+  logger.log(`[useAppDownload] Re-attaching to the detached download of ${name} (${meta.bundleId})`);
+  const toast = await showToast({
+    style: Toast.Style.Animated,
+    title: alreadySettled ? `Finishing ${name}...` : `Downloading ${name}...`,
+    message: alreadySettled ? undefined : "Resumed",
+    primaryAction: alreadySettled
+      ? undefined
+      : { title: "Cancel Download", shortcut: { modifiers: ["cmd"], key: "." }, onAction: () => cancel.abort() },
+  });
+  try {
+    const filePath = await adoptDownload(meta, {
+      alreadySettled,
+      signal: cancel.signal,
+      onProgress: (progress) => {
+        toast.message = `${Math.floor(progress * 100)}%`;
+      },
+    });
+    toast.primaryAction = undefined;
+    if (!filePath) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "Download Failed";
+      toast.message = `${name} did not produce a file.`;
+      return;
+    }
+    try {
+      // The job's own record is enough to write the history entry; the catalog
+      // only enriches it. The job status is already cleared, so an entry skipped
+      // for a failed lookup (offline, say) could never be recovered later.
+      let enrichment: AppDetails | undefined;
+      try {
+        const itunes = await fetchITunesAppDetails(meta.bundleId);
+        if (itunes) enrichment = convertITunesResultToAppDetails(itunes);
+      } catch (error) {
+        logger.warn(`[useAppDownload] Catalog lookup failed; recording history from the job alone:`, error);
+      }
+      // The artifact is what the job downloaded: its version and platform win
+      // over whatever the Store lists now.
+      const details: AppDetails = {
+        ...(enrichment ?? minimalAppDetails(meta)),
+        ...(meta.appVersion ? { version: meta.appVersion } : {}),
+        platform: meta.platform,
+      };
+      await appendToDownloadHistory(details, filePath);
+      await onRecorded();
+    } catch (error) {
+      logger.warn(`[useAppDownload] Could not record the re-attached download in history:`, error);
+    }
+    toast.style = Toast.Style.Success;
+    toast.title = "Download Complete";
+    toast.message = name;
+    toast.primaryAction = {
+      title: "Show in Finder",
+      shortcut: { modifiers: ["cmd"], key: "o" },
+      onAction: async () => {
+        await showInFinder(filePath);
+      },
+    };
+    toast.secondaryAction = {
+      title: "Copy to Clipboard",
+      shortcut: { modifiers: ["cmd"], key: "c" },
+      onAction: async (copyToast) => {
+        await Clipboard.copy(filePath);
+        copyToast.message = "Path copied to clipboard";
+      },
+    };
+  } catch (error) {
+    toast.primaryAction = undefined;
+    if (error instanceof JobFinishedElsewhereError) {
+      // Another window followed it to the end and published it.
+      toast.hide();
+      return;
+    }
+    if (error instanceof DownloadCanceledError) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "Download Canceled";
+      toast.message = name;
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    const info = analyzeIpatoolError(message);
+    logger.error(`[useAppDownload] Re-attached download of ${name} failed:`, error);
+    toast.style = Toast.Style.Failure;
+    toast.title = info.isAuthError ? "Sign In Required" : (ERROR_TYPE_TITLES[info.errorType] ?? "Download Failed");
+    toast.message = info.userMessage;
+    toast.primaryAction = {
+      title: "Copy Error",
+      onAction: () => {
+        Clipboard.copy(message);
+      },
+    };
+  }
+}
+
 /**
  * Hook for downloading an app
  * @param authNavigation Optional auth navigation helpers for form redirects
@@ -71,7 +223,14 @@ const ERROR_TYPE_TITLES: Partial<Record<IpatoolErrorInfo["errorType"], string>> 
 export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
   const [isLoading, setIsLoading] = useState(globalDownloadState.isDownloading || globalDownloadState.isAuthenticating);
   const [currentDownload, setCurrentDownload] = useState<string | null>(globalDownloadState.currentApp);
-  const { addToHistory } = useDownloadHistory();
+  const { addToHistory, refresh: refreshHistory } = useDownloadHistory();
+
+  // A download outlives the window that started it, so a command that opens
+  // while one is running follows it instead of starting another.
+  useEffect(() => {
+    void reattachDetachedDownloads(refreshHistory);
+    // Once per mount: the scan reads the status files, not React state.
+  }, []);
 
   /**
    * Download an app using ipatool
@@ -146,6 +305,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
     setCurrentDownload(name);
 
     let progressToast: Toast | undefined;
+    let ownsFollow = false;
     const cancel = new AbortController();
 
     // Single closure used by every "resume after auth" callback below. Capturing
@@ -315,6 +475,19 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         }
       }
 
+      // Already followed by this command (a re-attached download, say): say so
+      // rather than start a download the job id would refuse anyway.
+      if (followedBundles.has(bundleId)) {
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Already Downloading";
+          progressToast.message = `${name} is already downloading.`;
+          progressToast.primaryAction = undefined;
+        }
+        return null;
+      }
+      followedBundles.add(bundleId);
+      ownsFollow = true;
       const filePath = await downloadApp(bundleId, name, version, price, 0, undefined, {
         platform: resolvedPlatform,
         signal: cancel.signal,
@@ -451,6 +624,26 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         return null;
       }
 
+      if (error instanceof UnpublishedDownloadError) {
+        logger.log(`[useAppDownload] ${name} (${bundleId}) has a finished download waiting to be saved.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Failure;
+          progressToast.title = "Earlier Download Not Saved Yet";
+          progressToast.message = `Reopen this command to save the finished ${name}, then download again.`;
+        }
+        return null;
+      }
+
+      if (error instanceof JobFinishedElsewhereError) {
+        logger.log(`[useAppDownload] ${name} (${bundleId}) was finished by another window.`);
+        if (progressToast) {
+          progressToast.style = Toast.Style.Success;
+          progressToast.title = "Download Finished";
+          progressToast.message = `${name} was completed by another window.`;
+        }
+        return null;
+      }
+
       // Another Raycast command is already downloading this app. Not a failure
       // of this one — say what is happening instead of "Download Failed".
       if (error instanceof DownloadInProgressError) {
@@ -458,7 +651,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         if (progressToast) {
           progressToast.style = Toast.Style.Failure;
           progressToast.title = "Already Downloading";
-          progressToast.message = `${name} is downloading in another Raycast command.`;
+          progressToast.message = `${name} is already downloading.`;
         } else if (showHudMessages && !authNavigation) {
           await showHUD(`${name} is already downloading`);
         }
@@ -707,6 +900,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       return undefined;
     } finally {
       logger.log(`[useAppDownload] Cleaning up global/local download state for ${name} (${bundleId})`);
+      if (ownsFollow) followedBundles.delete(bundleId);
       // Released even while a sign-in form is open. Holding it for the form
       // stranded it whenever the form was dismissed — nothing on Cancel or Back
       // calls back here — and every later download in this command then

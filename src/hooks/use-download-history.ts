@@ -27,6 +27,47 @@ interface UseDownloadHistoryResult {
   isLoading: boolean;
 }
 
+// Serializes `appendToDownloadHistory`, so two downloads that finish together
+// each read what the other wrote.
+let appendChain: Promise<void> = Promise.resolve();
+
+/**
+ * Record a download without a mounted hook's state. The hook's `addToHistory`
+ * writes from the arrays it captured at render, so a callback taken at mount
+ * (before storage loaded) would replace the saved history with one entry.
+ * This reads storage fresh for every write.
+ */
+export function appendToDownloadHistory(app: AppDetails, filePath?: string, historyLimit = 100): Promise<void> {
+  const run = async () => {
+    const [historyStored, countsStored] = await Promise.all([
+      LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_HISTORY),
+      LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_COUNTS),
+    ]);
+    const history: DownloadHistoryItem[] = historyStored ? JSON.parse(historyStored) : [];
+    const counts: DownloadCount[] = countsStored ? JSON.parse(countsStored) : [];
+    const now = new Date().toISOString();
+    const previous = counts.find((item) => item.bundleId === app.bundleId);
+
+    const newHistory: DownloadHistoryItem[] = [
+      { app, downloadDate: now, downloadCount: (previous?.count ?? 0) + 1, filePath },
+      ...history.filter((item) => item.app.bundleId !== app.bundleId),
+    ]
+      .slice(0, historyLimit)
+      .map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
+    const newCounts: DownloadCount[] = previous
+      ? counts.map((item) =>
+          item.bundleId === app.bundleId ? { ...item, count: item.count + 1, lastDownloaded: now } : item,
+        )
+      : [...counts, { bundleId: app.bundleId, count: 1, lastDownloaded: now }];
+
+    await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(newHistory));
+    await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_COUNTS, JSON.stringify(newCounts));
+  };
+  const next = appendChain.then(run, run);
+  appendChain = next.catch(() => undefined);
+  return next;
+}
+
 /**
  * Hook for managing download history with automatic persistence
  * @param historyLimit Maximum number of history items to keep
@@ -78,17 +119,6 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
     }
   }, []);
 
-  // Persist counts to LocalStorage
-  const persistCounts = useCallback(async (counts: DownloadCount[]) => {
-    try {
-      await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_COUNTS, JSON.stringify(counts));
-      setDownloadCounts(counts);
-    } catch (error) {
-      console.error("Error persisting download counts:", error);
-      throw error;
-    }
-  }, []);
-
   /**
    * Get download count for an app
    */
@@ -101,63 +131,16 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   );
 
   /**
-   * Increment download count for an app
-   */
-  const incrementDownloadCount = useCallback(
-    async (bundleId: string) => {
-      const existingIndex = downloadCounts.findIndex((item) => item.bundleId === bundleId);
-
-      let newCounts: DownloadCount[];
-      if (existingIndex >= 0) {
-        newCounts = [...downloadCounts];
-        newCounts[existingIndex] = {
-          ...newCounts[existingIndex],
-          count: newCounts[existingIndex].count + 1,
-          lastDownloaded: new Date().toISOString(),
-        };
-      } else {
-        newCounts = [
-          ...downloadCounts,
-          {
-            bundleId,
-            count: 1,
-            lastDownloaded: new Date().toISOString(),
-          },
-        ];
-      }
-
-      await persistCounts(newCounts);
-    },
-    [downloadCounts, persistCounts],
-  );
-
-  /**
    * Add an app to download history
    */
   const addToHistory = useCallback(
     async (app: AppDetails, filePath?: string) => {
       try {
-        // Remove existing entry for this app if it exists
-        const filteredHistory = downloadHistory.filter((item) => item.app.bundleId !== app.bundleId);
-
-        // Get current download count
-        const currentCount = getDownloadCount(app.bundleId);
-
-        // Add new download at the beginning
-        const newHistory: DownloadHistoryItem[] = [
-          {
-            app,
-            downloadDate: new Date().toISOString(),
-            downloadCount: currentCount + 1,
-            filePath,
-          },
-          ...filteredHistory,
-        ].slice(0, historyLimit);
-
-        await persistHistory(newHistory);
-
-        // Update download count
-        await incrementDownloadCount(app.bundleId);
+        // Read storage fresh rather than the arrays captured at render: a
+        // download runs for minutes, and a detached one that finished in the
+        // meantime would otherwise be overwritten by this stale snapshot.
+        await appendToDownloadHistory(app, filePath, historyLimit);
+        await loadData();
       } catch (error) {
         console.error("Error adding to download history:", error);
         await showToast({
@@ -167,7 +150,7 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
         });
       }
     },
-    [downloadHistory, persistHistory, getDownloadCount, incrementDownloadCount, historyLimit],
+    [loadData, historyLimit],
   );
 
   /**

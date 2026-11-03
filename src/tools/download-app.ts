@@ -12,6 +12,7 @@ import {
 import { DownloadPlatform } from "../utils/download-layout";
 import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAppSearchError, handleDownloadError, handleIpatoolError, sanitizeQuery } from "../utils/error-handler";
+import { UnpublishedDownloadError } from "../utils/ipa-download-job";
 import { analyzeIpatoolError } from "../utils/ipatool-error-patterns";
 
 // Constants
@@ -189,8 +190,15 @@ export default async function downloadIosApp(input: Input) {
         };
       }
 
+      if (downloadError instanceof UnpublishedDownloadError) {
+        return {
+          success: false,
+          message: `An earlier download of ${appName} finished but has not been saved yet. Ask the user to open the iOS Apps Search command once to save it.`,
+        };
+      }
+
       if (downloadError instanceof DownloadInProgressError) {
-        return { success: false, message: `${appName} is already being downloaded in another Raycast command.` };
+        return { success: false, message: `${appName} is already being downloaded.` };
       }
 
       // Pre-release / Coming Soon: detect via typed error first (carries the
