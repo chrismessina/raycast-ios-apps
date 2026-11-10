@@ -180,6 +180,26 @@ export function analyzeIpatoolError(
     };
   }
 
+  // ipatool 2.8.0 generates Anisette locally and provisions it at login. A
+  // session saved by 2.7.0 or earlier has no provisioned state, so every
+  // request fails with `generate Store AMD proof: store AMD state is not
+  // provisioned` until `ipatool auth login` runs again (verified on a real
+  // 2.7.0 -> 2.8.0 upgrade, 2026-11-09). Same remedy as an expired session.
+  if (
+    fullMessage.includes("store amd state is not provisioned") ||
+    fullMessage.includes("generate store amd proof")
+  ) {
+    return {
+      isAuthError: true,
+      is2FARequired: false,
+      isCredentialError: false,
+      isLicenseRequired: false,
+      userMessage: "ipatool was upgraded and needs you to sign in again.",
+      suggestedAction: "Sign In",
+      errorType: "session_expired" as IpatoolErrorInfo["errorType"],
+    };
+  }
+
   // Authentication/Login failures - from appstore package errors
   if (
     fullMessage.includes("failed to read password") ||
