@@ -15,3 +15,5 @@ CLAUDE.md
 
 # local working plans (read from other checkouts; carry machine paths)
 /docs/plans/
+
+.context/compound-engineering/
