@@ -203,7 +203,10 @@ async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean,
     const info = analyzeIpatoolError(message);
     logger.error(`[useAppDownload] Re-attached download of ${name} failed:`, error);
     toast.style = Toast.Style.Failure;
-    toast.title = info.isAuthError ? "Sign In Required" : (ERROR_TYPE_TITLES[info.errorType] ?? "Download Failed");
+    toast.title =
+      info.isAuthError || error instanceof NeedsLoginError
+        ? "Sign In Required"
+        : (ERROR_TYPE_TITLES[info.errorType] ?? "Download Failed");
     toast.message = info.userMessage;
     toast.primaryAction = {
       title: "Copy Error",

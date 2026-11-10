@@ -31,9 +31,14 @@ interface UseDownloadHistoryResult {
 // each read what the other wrote.
 let appendChain: Promise<void> = Promise.resolve();
 
+// Mounted history views reload when any write lands, so a download that
+// finishes while History is open shows up there.
+const historyListeners = new Set<() => void>();
+
 function enqueueHistoryWrite(run: () => Promise<void>): Promise<void> {
   const next = appendChain.then(run, run);
   appendChain = next.catch(() => undefined);
+  void next.then(() => historyListeners.forEach((notify) => notify())).catch(() => undefined);
   return next;
 }
 
@@ -141,6 +146,10 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   // Load download history and counts on mount
   useEffect(() => {
     loadData();
+    historyListeners.add(loadData);
+    return () => {
+      historyListeners.delete(loadData);
+    };
   }, [loadData]);
 
   /**
