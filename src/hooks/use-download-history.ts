@@ -69,6 +69,40 @@ export function appendToDownloadHistory(app: AppDetails, filePath?: string, hist
 }
 
 /**
+ * Rewrite the saved history from fresh storage, through the same queue as
+ * `appendToDownloadHistory`. A mounted hook's array can be stale (a detached
+ * download recorded itself after it loaded), and writing back a filtered copy of
+ * that array would erase the newer entry.
+ */
+function mutateStoredHistory(change: (history: DownloadHistoryItem[]) => DownloadHistoryItem[]): Promise<void> {
+  const run = async () => {
+    const stored = await LocalStorage.getItem<string>(STORAGE_KEYS.DOWNLOAD_HISTORY);
+    const history: DownloadHistoryItem[] = stored ? JSON.parse(stored) : [];
+    const next = change(history).map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
+    await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(next));
+  };
+  const next = appendChain.then(run, run);
+  appendChain = next.catch(() => undefined);
+  return next;
+}
+
+/** Drop one app's entry. Its download count is kept, as before. */
+export function removeFromStoredDownloadHistory(bundleId: string): Promise<void> {
+  return mutateStoredHistory((history) => history.filter((item) => item.app.bundleId !== bundleId));
+}
+
+/**
+ * Replace the app details on an existing entry without touching its date, count
+ * or file path, so details fetched after the entry was recorded can be added
+ * without counting the download twice.
+ */
+export function updateStoredDownloadHistoryApp(app: AppDetails): Promise<void> {
+  return mutateStoredHistory((history) =>
+    history.map((item) => (item.app.bundleId === app.bundleId ? { ...item, app } : item)),
+  );
+}
+
+/**
  * Hook for managing download history with automatic persistence
  * @param historyLimit Maximum number of history items to keep
  * @returns Object with download history and management functions
@@ -106,18 +140,6 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  // Persist history to LocalStorage
-  const persistHistory = useCallback(async (history: DownloadHistoryItem[]) => {
-    try {
-      const slim = history.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
-      await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(slim));
-      setDownloadHistory(slim);
-    } catch (error) {
-      console.error("Error persisting download history:", error);
-      throw error;
-    }
-  }, []);
 
   /**
    * Get download count for an app
@@ -159,8 +181,8 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
   const removeFromHistory = useCallback(
     async (bundleId: string) => {
       try {
-        const filtered = downloadHistory.filter((item) => item.app.bundleId !== bundleId);
-        await persistHistory(filtered);
+        await removeFromStoredDownloadHistory(bundleId);
+        await loadData();
         await showToast({
           style: Toast.Style.Success,
           title: "Removed from History",
@@ -175,7 +197,7 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
         });
       }
     },
-    [downloadHistory, persistHistory],
+    [loadData],
   );
 
   /**

@@ -33,7 +33,7 @@ import {
   resolveDownloadPlatform,
 } from "../utils/itunes-api";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
-import { appendToDownloadHistory, useDownloadHistory } from "./use-download-history";
+import { appendToDownloadHistory, updateStoredDownloadHistoryApp, useDownloadHistory } from "./use-download-history";
 
 // Global download state to prevent concurrent downloads across all hook instances
 const globalDownloadState = {
@@ -147,25 +147,24 @@ async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean,
       return;
     }
     try {
-      // The job's own record is enough to write the history entry; the catalog
-      // only enriches it. The job status is already cleared, so an entry skipped
-      // for a failed lookup (offline, say) could never be recovered later.
-      let enrichment: AppDetails | undefined;
-      try {
-        const itunes = await fetchITunesAppDetails(meta.bundleId);
-        if (itunes) enrichment = convertITunesResultToAppDetails(itunes);
-      } catch (error) {
-        logger.warn(`[useAppDownload] Catalog lookup failed; recording history from the job alone:`, error);
-      }
+      // Record from the job's own metadata FIRST. The job status is already
+      // cleared, so nothing can recover this entry later; closing the command
+      // while a slow catalog lookup is pending must not lose it. The catalog
+      // then only enriches the entry that already exists.
       // The artifact is what the job downloaded: its version and platform win
       // over whatever the Store lists now.
-      const details: AppDetails = {
-        ...(enrichment ?? minimalAppDetails(meta)),
-        ...(meta.appVersion ? { version: meta.appVersion } : {}),
-        platform: meta.platform,
-      };
-      await appendToDownloadHistory(details, filePath);
+      const artifact = { ...(meta.appVersion ? { version: meta.appVersion } : {}), platform: meta.platform };
+      await appendToDownloadHistory({ ...minimalAppDetails(meta), ...artifact }, filePath);
       await onRecorded();
+      try {
+        const itunes = await fetchITunesAppDetails(meta.bundleId);
+        if (itunes) {
+          await updateStoredDownloadHistoryApp({ ...convertITunesResultToAppDetails(itunes), ...artifact });
+          await onRecorded();
+        }
+      } catch (error) {
+        logger.warn(`[useAppDownload] Catalog lookup failed; the history entry keeps the job's own details:`, error);
+      }
     } catch (error) {
       logger.warn(`[useAppDownload] Could not record the re-attached download in history:`, error);
     }

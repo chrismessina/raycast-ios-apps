@@ -185,10 +185,7 @@ export function analyzeIpatoolError(
   // request fails with `generate Store AMD proof: store AMD state is not
   // provisioned` until `ipatool auth login` runs again (verified on a real
   // 2.7.0 -> 2.8.0 upgrade, 2026-11-09). Same remedy as an expired session.
-  if (
-    fullMessage.includes("store amd state is not provisioned") ||
-    fullMessage.includes("generate store amd proof")
-  ) {
+  if (fullMessage.includes("store amd state is not provisioned") || fullMessage.includes("generate store amd proof")) {
     return {
       isAuthError: true,
       is2FARequired: false,
