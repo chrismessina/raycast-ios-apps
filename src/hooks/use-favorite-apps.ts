@@ -46,10 +46,14 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
     loadFavorites();
   }, []);
 
-  // Persist to LocalStorage
-  const persistFavorites = useCallback(async (favorites: FavoriteApp[]) => {
+  // Change the saved favorites from a fresh read, never from this instance's
+  // array: another mounted instance (a detail view over Search) may have saved
+  // since this one loaded, and writing back a stale copy would drop its change.
+  const mutateFavorites = useCallback(async (change: (favorites: FavoriteApp[]) => FavoriteApp[]) => {
     try {
-      const slim = favorites.map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
+      const stored = await LocalStorage.getItem<string>(STORAGE_KEYS.FAVORITE_APPS);
+      const current: FavoriteApp[] = stored ? JSON.parse(stored) : [];
+      const slim = change(current).map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
       await LocalStorage.setItem(STORAGE_KEYS.FAVORITE_APPS, JSON.stringify(slim));
       setFavoriteApps(slim);
     } catch (error) {
@@ -74,20 +78,11 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
   const addFavorite = useCallback(
     async (app: AppDetails) => {
       try {
-        // Check if already favorited
-        if (favoriteApps.some((item) => item.app.bundleId === app.bundleId)) {
-          return;
-        }
-
-        const newFavorites: FavoriteApp[] = [
-          ...favoriteApps,
-          {
-            app,
-            favoritedDate: new Date().toISOString(),
-          },
-        ];
-
-        await persistFavorites(newFavorites);
+        await mutateFavorites((favorites) =>
+          favorites.some((item) => item.app.bundleId === app.bundleId)
+            ? favorites
+            : [...favorites, { app, favoritedDate: new Date().toISOString() }],
+        );
         logger.log(`[Favorites] Added app to favorites: ${app.name} (${app.bundleId})`);
         await showToast({
           style: Toast.Style.Success,
@@ -103,7 +98,7 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
         });
       }
     },
-    [favoriteApps, persistFavorites],
+    [mutateFavorites],
   );
 
   /**
@@ -112,10 +107,8 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
   const removeFavorite = useCallback(
     async (bundleId: string) => {
       try {
-        const appToRemove = favoriteApps.find((item) => item.app.bundleId === bundleId);
-        const filtered = favoriteApps.filter((item) => item.app.bundleId !== bundleId);
-        await persistFavorites(filtered);
-        logger.log(`[Favorites] Removed app from favorites: ${appToRemove?.app.name || "Unknown"} (${bundleId})`);
+        await mutateFavorites((favorites) => favorites.filter((item) => item.app.bundleId !== bundleId));
+        logger.log(`[Favorites] Removed app from favorites (${bundleId})`);
         await showToast({
           style: Toast.Style.Success,
           title: "Removed from Favorites",
@@ -130,7 +123,7 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
         });
       }
     },
-    [favoriteApps, persistFavorites],
+    [mutateFavorites],
   );
 
   /**
