@@ -24,8 +24,8 @@ import { DownloadCanceledError, TWO_FACTOR_PROMPT_MESSAGE } from "./utils/errors
 import { cleanAppNameForFilename } from "./utils/formatting";
 import {
   followIpaJob,
-  hasUnpublishedJob,
   protectedOperationDirs,
+  settleStaleJobAndCheckUnpublished,
   startIpaJob,
   UnpublishedDownloadError,
   type IpaJobMeta,
@@ -964,12 +964,13 @@ export async function downloadApp(
   try {
     logger.log(`[ipatool] Starting download for bundleId: ${bundleId}, app: ${appName}, version: ${appVersion}`);
 
+    // Provided size, else the iTunes API's on the first attempt; feeds both
+    // prerequisite validation and progress tracking.
+    let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
+
     // Validate download prerequisites first (only on initial attempt, not retries)
     if (retryCount === 0) {
       logger.log(`[ipatool] Validating download prerequisites...`);
-
-      // Use provided expectedSizeBytes or fetch from iTunes API as fallback
-      let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
 
       if (!expectedSizeBytes) {
         try {
@@ -1013,29 +1014,13 @@ export async function downloadApp(
     // Get the downloads directory from preferences
     const downloadsDir = getDownloadsDirectory();
 
-    // Get expected file size for progress tracking
-    // Use provided size or fetch from iTunes API as fallback (only on initial attempt to avoid duplicate calls)
-    let expectedSizeBytes: number | undefined = options?.expectedSizeBytes;
-
     logger.log(
       `[ipatool] Download params - retryCount: ${retryCount}, provided expectedSizeBytes: ${expectedSizeBytes}, suppressHUD: ${options?.suppressHUD}, hasOnProgress: ${Boolean(options?.onProgress)}`,
     );
 
-    if (!expectedSizeBytes && retryCount === 0) {
-      try {
-        const itunesDetails = await fetchITunesAppDetails(bundleId);
-        if (itunesDetails?.fileSizeBytes) {
-          expectedSizeBytes = itunesDetails.fileSizeBytes;
-          logger.log(
-            `[ipatool] Got expected app size from iTunes API: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
-          );
-        }
-      } catch (error) {
-        logger.warn(`[ipatool] Could not fetch app size from iTunes API for progress tracking:`, error);
-      }
-    } else if (expectedSizeBytes) {
+    if (expectedSizeBytes) {
       logger.log(
-        `[ipatool] Using provided expected app size for progress tracking: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
+        `[ipatool] Expected app size for progress tracking: ${Math.ceil(expectedSizeBytes / BYTES_PER_MB)} MB`,
       );
     }
 
@@ -1227,12 +1212,8 @@ function hudFor(suppressHUD: boolean): (message: string) => Promise<void> {
 /**
  * Runs attempts until one finishes, fails terminally, or retries run out.
  *
- * This replaced retrying by calling `downloadApp` from INSIDE the child's
- * `close` listener. An EventEmitter does not await its listeners, so when that
- * nested call rejected, the rejection went nowhere: the original download's
- * promise stayed pending forever, its `finally` never released the lock, and
- * Raycast's unhandled-rejection handler then killed the command. A plain loop
- * has none of that — every outcome is a return value.
+ * Every outcome is a return value or a throw, so nothing is lost inside an
+ * event listener.
  */
 async function runDownloadAttempts(ctx: DownloadContext, initial: AttemptPolicy): Promise<string | null | undefined> {
   let policy = initial;
@@ -1241,8 +1222,7 @@ async function runDownloadAttempts(ctx: DownloadContext, initial: AttemptPolicy)
     // Checked between attempts too: a cancel can land during a retry backoff
     // or an automatic license purchase, neither of which has a child to kill.
     if (ctx.signal?.aborted) throw new DownloadCanceledError();
-    // A retry can follow a long backoff, and every retry used to re-enter
-    // `downloadApp` and re-check the session; keep that.
+    // A retry can follow a long backoff, so re-check the session first.
     if (!isFirst && !(await ensureAuthenticated())) return null;
 
     const outcome = await runDownloadAttempt(ctx, policy);
@@ -1296,12 +1276,10 @@ async function runDownloadAttempt(ctx: DownloadContext, policy: AttemptPolicy): 
       // and doing it inside a new request tangled the two lifecycles. Checked
       // here, immediately before starting, because preflight awaits can
       // outlast a running job.
-      if (hasUnpublishedJob(bundleId)) throw new UnpublishedDownloadError(bundleId);
+      if (settleStaleJobAndCheckUnpublished(bundleId)) throw new UnpublishedDownloadError(bundleId);
 
-      // A fresh directory per attempt also replaces the sweep that used to run
-      // before every attempt: ipatool resumes from a leftover `.ipa.tmp` and a
-      // corrupted one produced "negative offset" errors. A new directory has no
-      // leftovers to resume from.
+      // A fresh directory per attempt: ipatool resumes from a leftover `.ipa.tmp`,
+      // and a corrupted one produced "negative offset" errors.
       operationDir = createOperationDirectory(ctx.downloadsDir, protectedOperationDirs());
 
       const retryInfo = policy.attempt > 0 ? ` (Attempt ${policy.attempt + 1}/${MAX_RETRIES + 1})` : "";
@@ -1733,8 +1711,7 @@ async function interpretDownload(
   }
 
   // Last resort: whatever finished artifact is in the operation directory. It
-  // holds only this attempt's output, so — unlike scanning the shared downloads
-  // directory, as this used to — it cannot adopt an older download of the same
+  // holds only this attempt's output, so it cannot adopt an older download of the same
   // app, or a different app's file, as this one's result.
   if (!filePath) {
     try {
@@ -1808,7 +1785,7 @@ async function interpretDownload(
   // Publish: move the artifact out of the operation directory into the
   // downloads directory. Both are on one filesystem, so this is a single atomic
   // rename — never a copy — and it replaces an existing file of the same name
-  // in one step, where the old unlink-then-rename left a window with neither.
+  // in one step.
   const currentFileName = path.basename(filePath);
   let publishedName = currentFileName;
   if (appName && appVersion) {
@@ -1829,9 +1806,7 @@ async function interpretDownload(
       }
       fs.renameSync(filePath, destination);
       logger.log(`[ipatool] Published ${appName || bundleId} to: ${destination}`);
-      // Announced only now. It used to fire as soon as ipatool exited, before
-      // the file was found, verified, or saved — so a corrupted or unsaveable
-      // download said "complete" and then failed.
+      // Announced only once the file is found, verified, and saved.
       await hud("Download complete");
       return { kind: "done", filePath: destination };
     } catch (e) {

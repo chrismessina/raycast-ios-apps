@@ -7,11 +7,9 @@ import { OPERATION_DIR_PREFIX, shouldSweepOperationDir } from "./ipa-job";
  * Per-attempt operation directories, and the error for "this app is already
  * downloading".
  *
- * The lock that used to live here is gone: downloads now run detached through
- * `@chrismessina/raycast-downloader`, and `startCommand` refuses a second
- * download under the same id (`ipa-<bundleId>`) with `conflict`. A command
- * closed mid-download never ran its `finally`, which is why a lock held by the
- * command could not do this job.
+ * Downloads run detached through `@chrismessina/raycast-downloader`, and
+ * `startCommand` refuses a second download under the same id
+ * (`ipa-<bundleId>`) with `conflict`, so no lock lives here.
  */
 
 export class DownloadInProgressError extends Error {

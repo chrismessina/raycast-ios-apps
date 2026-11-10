@@ -75,7 +75,7 @@ export function listIpaJobs(): { status: CommandStatus; meta: IpaJobMeta }[] {
  * A job that ended in failure or cancel has no artifact to protect, so it is
  * cleared here, along with its directory, and does not count.
  */
-export function hasUnpublishedJob(bundleId: string): boolean {
+export function settleStaleJobAndCheckUnpublished(bundleId: string): boolean {
   const job = listIpaJobs().find(
     (candidate) => candidate.meta.bundleId === bundleId && isTerminal(candidate.status.state),
   );
@@ -143,7 +143,7 @@ export async function startIpaJob(input: {
 
 function readLog(path: string): string {
   try {
-    return fs.existsSync(path) ? fs.readFileSync(path, "utf8") : "";
+    return fs.readFileSync(path, "utf8");
   } catch {
     return "";
   }
@@ -203,7 +203,7 @@ export function followIpaJob(
 
     const report = (bytes: number, total: number | undefined) => {
       const denominator = options.expectedSizeBytes ?? total;
-      // Every 512 KB, as the in-process poller did.
+      // Report every 512 KB.
       if (!denominator || bytes <= lastReportedBytes + 512 * 1024) return;
       const progress = Math.min(bytes / denominator, 1);
       if (progress > lastProgress) {
@@ -244,7 +244,7 @@ export function followIpaJob(
       try {
         return acquireLease(id, { ownerId, leaseMs: LEASE_MS }) !== null;
       } catch (error) {
-        // Fail open, like the old file lock: a lease we cannot write is not worth refusing the download.
+        // Fail open: a lease we cannot write is not worth refusing the download.
         logger.warn(`[ipa-job] Could not take the lease on ${id}; following anyway:`, error);
         return true;
       }

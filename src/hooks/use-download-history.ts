@@ -31,6 +31,12 @@ interface UseDownloadHistoryResult {
 // each read what the other wrote.
 let appendChain: Promise<void> = Promise.resolve();
 
+function enqueueHistoryWrite(run: () => Promise<void>): Promise<void> {
+  const next = appendChain.then(run, run);
+  appendChain = next.catch(() => undefined);
+  return next;
+}
+
 /**
  * Record a download without a mounted hook's state. The hook's `addToHistory`
  * writes from the arrays it captured at render, so a callback taken at mount
@@ -63,9 +69,7 @@ export function appendToDownloadHistory(app: AppDetails, filePath?: string, hist
     await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(newHistory));
     await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_COUNTS, JSON.stringify(newCounts));
   };
-  const next = appendChain.then(run, run);
-  appendChain = next.catch(() => undefined);
-  return next;
+  return enqueueHistoryWrite(run);
 }
 
 /**
@@ -81,12 +85,10 @@ function mutateStoredHistory(change: (history: DownloadHistoryItem[]) => Downloa
     const next = change(history).map((item) => ({ ...item, app: withoutCachedITunesData(item.app) }));
     await LocalStorage.setItem(STORAGE_KEYS.DOWNLOAD_HISTORY, JSON.stringify(next));
   };
-  const next = appendChain.then(run, run);
-  appendChain = next.catch(() => undefined);
-  return next;
+  return enqueueHistoryWrite(run);
 }
 
-/** Drop one app's entry. Its download count is kept, as before. */
+/** Drop one app's entry. Its download count is kept. */
 export function removeFromStoredDownloadHistory(bundleId: string): Promise<void> {
   return mutateStoredHistory((history) => history.filter((item) => item.app.bundleId !== bundleId));
 }
