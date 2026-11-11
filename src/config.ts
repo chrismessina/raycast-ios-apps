@@ -8,7 +8,6 @@ export type IntegrityVerification = "basic" | "checksum" | "off";
 export interface Config {
   maxDownloadTimeout: number; // in milliseconds
   maxStallTimeout: number; // in milliseconds without progress
-  tempCleanupOnExit: boolean;
   integrityVerification: IntegrityVerification;
   allowedScreenshotDomains: string[]; // Allowed domains for screenshot downloads
 }
@@ -17,7 +16,6 @@ export interface Config {
 interface Preferences {
   downloadTimeoutSeconds: string;
   maxStallTimeout: string;
-  tempCleanupOnExit: boolean;
   integrityVerification: IntegrityVerification;
   allowedScreenshotDomains?: string; // Optional comma-separated list of additional domains
 }
@@ -26,7 +24,6 @@ interface Preferences {
 const defaultConfig: Config = {
   maxDownloadTimeout: 90000, // 90 seconds in milliseconds
   maxStallTimeout: 30000, // 30 seconds in milliseconds
-  tempCleanupOnExit: true,
   integrityVerification: "basic",
   allowedScreenshotDomains: [
     "is1-ssl.mzstatic.com",
@@ -58,9 +55,6 @@ export function getConfig(): Config {
     const maxStallTimeout = parseInt(preferences.maxStallTimeout || "30000", 10);
     const validatedStallTimeout = Math.max(maxStallTimeout, 5000); // minimum 5 seconds
 
-    // tempCleanupOnExit from preference
-    const tempCleanupOnExit = preferences.tempCleanupOnExit ?? defaultConfig.tempCleanupOnExit;
-
     // integrityVerification from preference
     const integrityVerification = preferences.integrityVerification || defaultConfig.integrityVerification;
 
@@ -77,7 +71,6 @@ export function getConfig(): Config {
     return {
       maxDownloadTimeout,
       maxStallTimeout: validatedStallTimeout,
-      tempCleanupOnExit,
       integrityVerification,
       allowedScreenshotDomains,
     };
@@ -106,7 +99,6 @@ export function logCurrentConfig(): void {
     logger.log("[Config] Current configuration:", {
       maxDownloadTimeout: `${config.maxDownloadTimeout}ms (${config.maxDownloadTimeout / 1000}s)`,
       maxStallTimeout: `${config.maxStallTimeout}ms (${config.maxStallTimeout / 1000}s)`,
-      tempCleanupOnExit: config.tempCleanupOnExit,
       integrityVerification: config.integrityVerification,
       allowedScreenshotDomains: `${config.allowedScreenshotDomains.length} domains`,
     });

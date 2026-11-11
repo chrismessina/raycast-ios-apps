@@ -12,7 +12,6 @@ import {
 import { login as ipatoolLogin } from "./ipatool-auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { executeIpatoolCommand, IpatoolSetupError, validateIpatoolInstallation } from "./ipatool-validator";
-import { handleProcessErrorCleanup } from "./temp-file-manager";
 
 // Re-exported so every existing `from "./auth"` importer keeps working.
 export {
@@ -232,7 +231,7 @@ async function executeSecureIpatoolCommand(args: string[]): Promise<{ stdout: st
 
   if (!result.success && !isAuthInfoCommand) {
     const error = result.error || new Error("Unknown execution error");
-    handleProcessErrorCleanup(error, "executeSecureIpatoolCommand");
+    logger.error("[auth] Process error in executeSecureIpatoolCommand:", error);
     throw error;
   }
 

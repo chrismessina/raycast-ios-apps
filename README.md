@@ -21,7 +21,7 @@
 - **Filter search by platform** — iPhone, iPad, Mac, or Apple TV, remembered between launches
 - **Developer's catalogue** — browse every app by one developer inside Raycast, without opening the App Store
 - **Purchased apps** — everything this Apple ID has ever acquired, newest first, sortable by purchase date or name. Finds apps the Store search can't, including titles that have since been delisted
-- **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`. Downloads run as detached background jobs, so closing Raycast does not stop them; reopening a download command saves any that finished meanwhile
+- **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`. Downloads run as detached background jobs, so closing Raycast does not stop them. Reopening a download command saves any that finished while it was closed
 - **Full-resolution screenshots** — extracted per platform (iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro) and filtered by your preferences
 - **Favorites** — star apps for quick access; export the list to Markdown or CSV
 - **Download history** — every download tracked with a count and timestamp, sortable and filterable, capped at the 100 most recent
@@ -34,7 +34,11 @@
 
 - [Raycast](https://www.raycast.com/) installed
 - macOS — `ipatool` and the Keychain integration are macOS-only
-- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.6.0 or greater**, for downloads. 2.4.0 fixed Apple's commerce auth gate — the HTTP 403 "empty or non-plist body" failure ([majd/ipatool#522](https://github.com/majd/ipatool/issues/522), [#523](https://github.com/majd/ipatool/issues/523)) — with SAP-signed App Store requests, and 2.5.0 added `list-purchases` and visionOS support. **2.6.0 is the floor** because Apple's redownload endpoint now answers older builds with an empty product payload ([majd/ipatool#538](https://github.com/majd/ipatool/issues/538)) or an HTTP 500, so 2.5.0 can no longer download anything. If `brew` hasn't picked up 2.6.0 yet, grab the [release build](https://github.com/majd/ipatool/releases) and point the extension's **ipatool Path** preference at it. The floor is enforced in `src/utils/ipatool-validator.ts`.
+- [Homebrew](https://brew.sh) and [`ipatool`](https://github.com/majd/ipatool) **2.6.0 or greater**, for downloads. 2.4.0 fixed Apple's commerce auth gate, the HTTP 403 "empty or non-plist body" failure ([majd/ipatool#522](https://github.com/majd/ipatool/issues/522), [#523](https://github.com/majd/ipatool/issues/523)), by signing App Store requests with SAP. 2.5.0 added `list-purchases` and visionOS support.
+
+  **2.6.0 is the floor.** Apple's redownload endpoint now answers older builds with an empty product payload ([majd/ipatool#538](https://github.com/majd/ipatool/issues/538)) or an HTTP 500, so 2.5.0 can no longer download anything. If `brew` hasn't picked up 2.6.0 yet, grab the [release build](https://github.com/majd/ipatool/releases) and point the extension's **ipatool Path** preference at it. `src/utils/ipatool-validator.ts` enforces the floor.
+
+  ipatool 2.8.0 is supported. It sets up its Apple device identity at login, so after upgrading from an older version you must sign in again once.
 
 ```bash
 # Homebrew, if you don't have it
@@ -102,14 +106,13 @@ Search accepts an optional `limit` (default 10, max 20). **The AI tools search v
 | Homebrew Path            | path                                                 | `/opt/homebrew/bin/brew`    |
 | ipatool Path             | path                                                 | `/opt/homebrew/bin/ipatool` |
 | Include Screenshots From | iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro | iPhone + iPad               |
-| Download Timeout         | seconds (min 30)                                     | `90`                        |
-| Max Concurrent Downloads | 1–10                                                 | `5`                         |
-| Max Stall Timeout        | milliseconds                                         | `30000`                     |
-| Cleanup Temporary Files  | on / off                                             | on                          |
+| Screenshot Timeout       | seconds (min 30)                                     | `90`                        |
+| Concurrent Screenshots   | 1–10                                                 | `5`                         |
+| IPA Stall Timeout        | milliseconds                                         | `30000`                     |
 | Integrity Verification   | Basic, Checksum, Off                                 | Basic                       |
 | Debug Logging            | on / off                                             | off                         |
 
-**On concurrency:** higher is faster but heavier; 3–7 suits most machines. **On platform filters:** screenshots are always _extracted_ for every platform Apple publishes — the preference controls only which are _downloaded and saved_, so disabling one saves time and disk, not fidelity.
+**On screenshot concurrency:** a higher number is faster but heavier on the machine; 3–7 suits most. IPA downloads are not limited by it. **On the stall timeout:** an IPA download is stopped only when it makes no progress for this long; it has no overall time limit. **On temporary files:** each IPA download works in its own folder inside the download directory, and the extension deletes that folder when the file is saved or the download fails or is canceled. **On platform filters:** screenshots are always _extracted_ for every platform Apple publishes — the preference controls only which are _downloaded and saved_, so disabling one saves time and disk, not fidelity.
 
 ---
 
@@ -132,7 +135,7 @@ d[0].attributes.platformAttributes[platform].customAttributes.default.default.cu
 
 Apple's internal device identifiers are mapped to platforms (`iphone_6_5`/`iphone_d74` → iPhone, `ipadpro_2018`/`ipad_pro_129` → iPad, `appletv` → Apple TV, `applewatch_2022` → Apple Watch, `applevision`/`visionpro` → Vision Pro, `mac`/`macbook` → Mac), and URLs are rewritten to the highest available resolution.
 
-> ⚠️ **This is scraping, and Apple can change it without notice.** The parser checks both platform-specific and fallback paths, isolates JSON errors so one bad branch doesn't abort the run, returns partial results rather than nothing, and logs enough to diagnose a structure change. It is built to degrade rather than break — but a future App Store redesign could still affect screenshot extraction.
+> ⚠️ **This is scraping, and Apple can change it without notice.** The parser checks both platform-specific and fallback paths, isolates JSON errors so one bad branch doesn't abort the run, returns partial results rather than nothing, and logs enough to diagnose a structure change. A future App Store redesign could still break screenshot extraction.
 
 ---
 
@@ -140,7 +143,7 @@ Apple's internal device identifiers are mapped to platforms (`iphone_6_5`/`iphon
 
 This extension does not collect or transmit personal data. It talks only to Apple, via the `ipatool` CLI and the iTunes API.
 
-**The extension does store some credentials — here is exactly what, and where:**
+**The extension stores these credentials:**
 
 | What                | Where                                                   | Notes                                                                                                  |
 | ------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -149,7 +152,7 @@ This extension does not collect or transmit personal data. It talks only to Appl
 | Two-factor codes    | Nowhere                                                 | Never persisted.                                                                                       |
 | `ipatool`'s session | System Keychain, item `ipatool-auth.service`            | Created and owned by `ipatool` — this extension neither creates nor modifies it.                       |
 
-Nothing is collected or transmitted anywhere; the only network destination is Apple. The **Logout** command attempts `ipatool auth revoke`, then clears the stored Apple ID and deletes the password entry — and clears them even if the revoke fails.
+The **Logout** command attempts `ipatool auth revoke`, then clears the stored Apple ID and deletes the password entry — and clears them even if the revoke fails.
 
 Two-factor is fully supported, and both the login and 2FA forms run inside Raycast. You are prompted only when you first download something; after that, re-authentication should be rare.
 
