@@ -85,13 +85,14 @@ export function formatAppName(name: string): string {
  *   "Shazam- Find Music & Concerts" -> "Shazam"
  *   "Perplexity - AI Search & Chat" -> "Perplexity"
  *   "Oura" -> "Oura"
+ *   "Co–Star Personalized Astrology" -> "Co–Star Personalized Astrology"
  */
 export function cleanAppNameForFilename(appName: string): string {
   if (!appName) return appName;
 
-  // Remove common marketing suffixes after ' - ', '-', ' – ' (em-dash), '–', ' : ', or ':'
-  // Handles formats like "App - Description", "App- Description", "App: Description", "App: Description"
-  let cleaned = appName.replace(/\s*[-–:]\s*.+$/i, "").trim();
+  // Cut marketing suffixes after a dash or colon: "App - Desc", "App- Desc", "App: Desc".
+  // A dash with no whitespace on either side is part of the name ("Co-Star", "Co–Star").
+  let cleaned = appName.replace(/(?:\s+[-–—]\s*|\s*[-–—]\s+|\s*:\s*).+$/, "").trim();
 
   // Remove common marketing suffixes after ' | '
   cleaned = cleaned.replace(/\s+\|\s+.+$/i, "").trim();
