@@ -21,7 +21,7 @@
 - **Filter search by platform** — iPhone, iPad, Mac, or Apple TV, remembered between launches
 - **Developer's catalogue** — browse every app by one developer inside Raycast, without opening the App Store
 - **Purchased apps** — everything this Apple ID has ever acquired, newest first, sortable by purchase date or name. Finds apps the Store search can't, including titles that have since been delisted
-- **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`
+- **Download IPAs** — pulled through `ipatool` and renamed to `{App Name} {Version}.ipa`. Downloads run as detached background jobs, so closing Raycast does not stop them; reopening a download command saves any that finished meanwhile
 - **Full-resolution screenshots** — extracted per platform (iPhone, iPad, Mac, Apple TV, Apple Watch, Vision Pro) and filtered by your preferences
 - **Favorites** — star apps for quick access; export the list to Markdown or CSV
 - **Download history** — every download tracked with a count and timestamp, sortable and filterable, capped at the 100 most recent
@@ -127,7 +127,7 @@ Apple's term-search index lags the App Store by hours to days, so a just-release
 Full-resolution screenshots are parsed out of the "shoebox" JSON Apple embeds in App Store web pages — `<script type="fastboot/shoebox" id="shoebox-media-api-cache-apps">`. The payload is nested JSON-inside-JSON, so extraction parses the outer object, then the inner strings, then walks to:
 
 ```typescript
-d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType
+d[0].attributes.platformAttributes[platform].customAttributes.default.default.customScreenshotsByType;
 ```
 
 Apple's internal device identifiers are mapped to platforms (`iphone_6_5`/`iphone_d74` → iPhone, `ipadpro_2018`/`ipad_pro_129` → iPad, `appletv` → Apple TV, `applewatch_2022` → Apple Watch, `applevision`/`visionpro` → Vision Pro, `mac`/`macbook` → Mac), and URLs are rewritten to the highest available resolution.
@@ -173,12 +173,13 @@ The extension stores your Apple ID password in a separate Keychain entry, `ios-a
 
 ## Troubleshooting
 
-| Symptom                                             | Cause and fix                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Search returns nothing for an app you know exists   | The app is too new for Apple's term index. Paste its App Store URL or numeric app ID instead — that path uses exact lookup                       |
-| Authentication failures                             | Run `ipatool auth login` directly in a terminal to see the real error                                                                            |
-| Download errors                                     | Check free disk space and write permission on your download directory                                                                            |
-| AI tool search fails while the Search command works | The AI tools go through `ipatool`, which must be installed, on the configured path, **and authenticated**. The Search command needs none of that |
+| Symptom                                               | Cause and fix                                                                                                                                                                       |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Search returns nothing for an app you know exists     | The app is too new for Apple's term index. Paste its App Store URL or numeric app ID instead — that path uses exact lookup                                                          |
+| Authentication failures                               | Run `ipatool auth login` directly in a terminal to see the real error                                                                                                               |
+| `ipatool was upgraded and needs you to sign in again` | ipatool 2.8.0 sets up its Apple device identity at login, so a session saved by an older version fails to download. Run **Run Doctor** (or `ipatool auth login` in a terminal) once |
+| Download errors                                       | Check free disk space and write permission on your download directory                                                                                                               |
+| AI tool search fails while the Search command works   | The AI tools go through `ipatool`, which must be installed, on the configured path, **and authenticated**. The Search command needs none of that                                    |
 
 ---
 
@@ -226,13 +227,14 @@ npm run dev
 
 ## Tech Stack
 
-| Package                        | Role                                                             |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `@raycast/api`                 | Raycast extension primitives (List, Detail, ActionPanel, Form)   |
-| `@raycast/utils`               | Higher-level Raycast utilities                                   |
-| `@chrismessina/raycast-logger` | Structured logging for the App Store and `ipatool` request paths |
-| `p-limit`                      | Bounds concurrent screenshot downloads to the configured maximum |
-| `lodash`                       | Collection and string helpers                                    |
+| Package                            | Role                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `@raycast/api`                     | Raycast extension primitives (List, Detail, ActionPanel, Form)         |
+| `@raycast/utils`                   | Higher-level Raycast utilities                                         |
+| `@chrismessina/raycast-logger`     | Structured logging for the App Store and `ipatool` request paths       |
+| `@chrismessina/raycast-downloader` | Runs each IPA download as a detached job that survives closing Raycast |
+| `p-limit`                          | Bounds concurrent screenshot downloads to the configured maximum       |
+| `lodash`                           | Collection and string helpers                                          |
 
 ---
 
