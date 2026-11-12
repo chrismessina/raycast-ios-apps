@@ -2,9 +2,9 @@
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { getConfigValue } from "../config";
 // AppDetails type available if needed for future enhancements
 import { getDownloadsDirectory, sanitizeFilename, validateSafePath } from "./paths";
@@ -215,7 +215,7 @@ export async function downloadAppIcon(bundleId: string, appName: string, iconUrl
     // Get the downloads directory
     const downloadsDir = await getDownloadsDirectory();
     if (!downloadsDir) {
-      showFailureToast("Could not determine downloads directory");
+      void showError(new Error("Check the Download Path preference."), { title: "Couldn't Find Downloads Folder" });
       return null;
     }
 
@@ -246,7 +246,7 @@ export async function downloadAppIcon(bundleId: string, appName: string, iconUrl
     }
 
     if (!finalIconUrl) {
-      await showFailureToast({ title: "No icon URL available", message: "Could not find app icon" });
+      await showError(new Error("Could not find app icon"), { title: "No icon URL available" });
       return null;
     }
 
@@ -296,10 +296,7 @@ export async function downloadAppIcon(bundleId: string, appName: string, iconUrl
     return filePath;
   } catch (error) {
     logger.error("[Icon Downloader] Error downloading icon:", error);
-    await showFailureToast({
-      title: "Failed to download icon",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    await showError(error, { title: "Failed to download icon", ignoreAbort: false });
     return null;
   }
 }

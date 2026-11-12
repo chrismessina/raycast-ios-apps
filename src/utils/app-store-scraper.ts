@@ -1,6 +1,7 @@
 // App Store web scraper utility functions using Shoebox JSON method
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
-import { getPreferenceValues, showToast, Toast } from "@raycast/api";
+import { getPreferenceValues } from "@raycast/api";
 import { AppDetails, PlatformPreferences, PlatformType, ScreenshotInfo } from "../types";
 import { APP_STORE_BASE_URL } from "./constants";
 import { handleToolError } from "./error-handler";
@@ -119,10 +120,8 @@ function getEnabledPlatforms(): PlatformType[] {
  */
 async function validateEnabledPlatforms(platforms: PlatformType[]): Promise<boolean> {
   if (platforms.length === 0) {
-    await showToast({
-      style: Toast.Style.Failure,
+    await showError(new Error("Enable at least one platform in Preferences to download screenshots."), {
       title: "Nothing to download!",
-      message: "Enable at least one platform in Preferences to download screenshots.",
     });
     return false;
   }
@@ -208,8 +207,17 @@ export async function scrapeAppStoreScreenshots(
       )}`,
     );
 
-    // Filter by enabled platforms
-    const filteredScreenshots = filterScreenshotsByPlatforms(allScreenshots, enabledPlatforms);
+    // Filter by enabled platforms. When the preferences match nothing the page offers
+    // (a Mac-only app with Mac unchecked, which is the default), take what the page has
+    // instead of reporting "no screenshots". An explicit override is honored as given.
+    let filteredScreenshots = filterScreenshotsByPlatforms(allScreenshots, enabledPlatforms);
+    if (filteredScreenshots.length === 0 && allScreenshots.length > 0 && !platforms) {
+      const available = [...new Set(allScreenshots.map((s) => s.type))];
+      logger.log(
+        `[Scraper] No screenshots for enabled platforms; using the platforms the app has: ${available.join(", ")}`,
+      );
+      filteredScreenshots = allScreenshots;
+    }
 
     // Remove duplicates
     const uniqueScreenshots = filterUniqueScreenshots(filteredScreenshots);

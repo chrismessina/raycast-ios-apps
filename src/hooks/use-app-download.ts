@@ -1,4 +1,5 @@
 import { isTerminal } from "@chrismessina/raycast-downloader";
+import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
 import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
@@ -141,9 +142,7 @@ async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean,
     });
     toast.primaryAction = undefined;
     if (!filePath) {
-      toast.style = Toast.Style.Failure;
-      toast.title = "Download Failed";
-      toast.message = `${name} did not produce a file.`;
+      failToast(toast, new Error(`${name} did not produce a file.`), { title: "Download Failed" });
       return;
     }
     try {
@@ -194,26 +193,21 @@ async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean,
       return;
     }
     if (error instanceof DownloadCanceledError) {
-      toast.style = Toast.Style.Failure;
-      toast.title = "Download Canceled";
-      toast.message = name;
+      failToast(toast, error, { title: "Download Canceled", message: name });
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
     const info = analyzeIpatoolError(message);
     logger.error(`[useAppDownload] Re-attached download of ${name} failed:`, error);
-    toast.style = Toast.Style.Failure;
-    toast.title =
-      info.isAuthError || error instanceof NeedsLoginError
-        ? "Sign In Required"
-        : (ERROR_TYPE_TITLES[info.errorType] ?? "Download Failed");
-    toast.message = info.userMessage;
-    toast.primaryAction = {
-      title: "Copy Error",
-      onAction: () => {
-        Clipboard.copy(message);
-      },
-    };
+    failToast(toast, error, {
+      title:
+        info.isAuthError || error instanceof NeedsLoginError
+          ? "Sign In Required"
+          : (ERROR_TYPE_TITLES[info.errorType] ?? "Download Failed"),
+      message: info.userMessage,
+      copyContext: message,
+      ignoreAbort: false,
+    });
   }
 }
 
@@ -345,11 +339,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             `[useAppDownload] Pre-release skip: ${name} (${bundleId}) — releaseDate ${appDetails.releaseDate} is in the future.`,
           );
           if (showHudMessages) {
-            await showToast({
-              style: Toast.Style.Failure,
-              title: "Not Released Yet",
-              message: `${name} is expected ${formattedDate}.`,
-            });
+            await showError(new Error(`${name} is expected ${formattedDate}.`), { title: "Not Released Yet" });
           }
           return null;
         }
@@ -481,10 +471,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       // rather than start a download the job id would refuse anyway.
       if (followedBundles.has(bundleId)) {
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Already Downloading";
-          progressToast.message = `${name} is already downloading.`;
-          progressToast.primaryAction = undefined;
+          failToast(progressToast, new Error(`${name} is already downloading.`), { title: "Already Downloading" });
         }
         return null;
       }
@@ -576,9 +563,10 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         } else {
           // File path returned but file doesn't exist
           if (progressToast) {
-            progressToast.style = Toast.Style.Failure;
-            progressToast.title = "Download Failed";
-            progressToast.message = "File not found at expected path";
+            failToast(progressToast, new Error("File not found at expected path"), {
+              title: "Download Failed",
+              copyContext: filePath,
+            });
           } else if (showHudMessages && !authNavigation) {
             logger.log(`[useAppDownload] Showing HUD: "Download Failed" (file missing) for ${name}`);
             await showHUD("Download Failed");
@@ -597,16 +585,14 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         // skip path now short-circuits earlier and never reaches downloadApp().
         logger.log(`[useAppDownload] Download did not run for ${name} (${bundleId}); auth or prereq returned null.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Download Did Not Start";
-          progressToast.message = "Authentication or prerequisites not satisfied.";
+          failToast(progressToast, new Error("Authentication or prerequisites not satisfied."), {
+            title: "Download Did Not Start",
+          });
         }
         return null;
       } else {
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Download Failed";
-          progressToast.message = "Could not determine file path";
+          failToast(progressToast, new Error("Could not determine file path"), { title: "Download Failed" });
         } else if (showHudMessages && !authNavigation) {
           logger.log(`[useAppDownload] Showing HUD: "Download Failed" (no file path) for ${name}`);
           await showHUD("Download Failed");
@@ -619,9 +605,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof DownloadCanceledError) {
         logger.log(`[useAppDownload] Download of ${name} (${bundleId}) canceled by the user.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Download Canceled";
-          progressToast.message = name;
+          failToast(progressToast, error, { title: "Download Canceled", message: name });
         }
         return null;
       }
@@ -629,9 +613,10 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof UnpublishedDownloadError) {
         logger.log(`[useAppDownload] ${name} (${bundleId}) has a finished download waiting to be saved.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Earlier Download Not Saved Yet";
-          progressToast.message = `Reopen this command to save the finished ${name}, then download again.`;
+          failToast(progressToast, error, {
+            title: "Earlier Download Not Saved Yet",
+            message: `Reopen this command to save the finished ${name}, then download again.`,
+          });
         }
         return null;
       }
@@ -651,9 +636,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof DownloadInProgressError) {
         logger.log(`[useAppDownload] ${name} (${bundleId}) is already downloading in another command.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Already Downloading";
-          progressToast.message = `${name} is already downloading.`;
+          failToast(progressToast, error, { title: "Already Downloading", message: `${name} is already downloading.` });
         } else if (showHudMessages && !authNavigation) {
           await showHUD(`${name} is already downloading`);
         }
@@ -667,9 +650,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof NotYetReleasedError) {
         logger.log(`[useAppDownload] Pre-release caught for ${name} (${bundleId}); surfacing terminal toast.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = "Not Released Yet";
-          progressToast.message = error.message;
+          failToast(progressToast, error, { title: "Not Released Yet", message: error.message });
         } else if (showHudMessages && !authNavigation) {
           await showHUD("Not Released Yet");
         }
@@ -683,15 +664,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof AppleEmptyResponseError) {
         logger.error(`[useAppDownload] Apple returned an empty payload for ${name} (${bundleId}); not retryable.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = APPLE_EMPTY_RESPONSE_TITLE;
-          progressToast.message = error.message;
-          progressToast.primaryAction = {
-            title: "Copy Error",
-            onAction: () => {
-              Clipboard.copy(error.message);
-            },
-          };
+          failToast(progressToast, error, { title: APPLE_EMPTY_RESPONSE_TITLE, message: error.message });
         } else if (showHudMessages && !authNavigation) {
           await showHUD(APPLE_EMPTY_RESPONSE_TITLE);
         }
@@ -701,15 +674,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof AppleAuthGateError) {
         logger.error(`[useAppDownload] Apple auth gate for ${name} (${bundleId}); download is not possible.`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = APPLE_AUTH_GATE_TITLE;
-          progressToast.message = error.message;
-          progressToast.primaryAction = {
-            title: "Copy Error",
-            onAction: () => {
-              Clipboard.copy(error.message);
-            },
-          };
+          failToast(progressToast, error, { title: APPLE_AUTH_GATE_TITLE, message: error.message });
         } else if (showHudMessages && !authNavigation) {
           await showHUD(APPLE_AUTH_GATE_TITLE);
         }
@@ -719,15 +684,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof BuiltInAppError) {
         logger.log(`[useAppDownload] Built-in Apple app rejected by the Store for ${name} (${bundleId}).`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = BUILT_IN_APP_TITLE;
-          progressToast.message = error.message;
-          progressToast.primaryAction = {
-            title: "Copy Error",
-            onAction: () => {
-              Clipboard.copy(error.message);
-            },
-          };
+          failToast(progressToast, error, { title: BUILT_IN_APP_TITLE, message: error.message });
         } else if (showHudMessages && !authNavigation) {
           await showHUD(BUILT_IN_APP_TITLE);
         }
@@ -737,9 +694,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
       if (error instanceof IpatoolSetupError) {
         logger.log(`[useAppDownload] ipatool setup failed for ${name} (${bundleId}): ${error.message}`);
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = error.title;
-          progressToast.message = error.message;
+          failToast(progressToast, error, { title: error.title, message: error.message });
         } else if (showHudMessages && !authNavigation) {
           await showHUD(error.title);
         }
@@ -763,10 +718,11 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
             `[useAppDownload] Auth error persists after re-login for ${name} (${bundleId}); not re-prompting.`,
           );
           if (progressToast) {
-            progressToast.style = Toast.Style.Failure;
-            progressToast.title = "Could Not Download";
-            progressToast.message =
-              "Apple rejected the request even though you're signed in. This can happen for some apps — please try again later.";
+            failToast(progressToast, error, {
+              title: "Could Not Download",
+              message:
+                "Apple rejected the request even though you're signed in. This can happen for some apps — please try again later.",
+            });
           } else if (showHudMessages && !authNavigation) {
             await showHUD("Could Not Download");
           }
@@ -788,9 +744,10 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
           // The "Downloading…" toast would otherwise keep spinning behind the
           // form as if the download were still running.
           if (progressToast) {
-            progressToast.style = Toast.Style.Failure;
-            progressToast.title = needsPassword ? "Sign In Required" : "Verification Code Needed";
-            progressToast.message = needsPassword ? `Sign in to download ${name}` : error.message;
+            failToast(progressToast, error, {
+              title: needsPassword ? "Sign In Required" : "Verification Code Needed",
+              message: needsPassword ? `Sign in to download ${name}` : error.message,
+            });
           }
           // Let the form flow handle authentication
           if (needsPassword) {
@@ -858,9 +815,12 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
 
         // Update progress toast if it exists
         if (progressToast) {
-          progressToast.style = Toast.Style.Failure;
-          progressToast.title = hudMessage;
-          progressToast.message = errorAnalysis.userMessage;
+          failToast(progressToast, error, {
+            title: hudMessage,
+            message: errorAnalysis.userMessage,
+            copyContext: errorMessage,
+            ignoreAbort: false,
+          });
         } else if (authNavigation) {
           // Avoid HUD to keep the view open; dedicated error handlers will show toasts
           logger.log(`[useAppDownload] Skipping HUD (view context). Would show: "${hudMessage}" for ${name}`);

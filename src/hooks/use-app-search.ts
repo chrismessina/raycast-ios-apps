@@ -1,7 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { debounce } from "lodash";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { showToast, Toast } from "@raycast/api";
 import type { AppDetails, ITunesResult } from "../types";
 import {
   convertITunesResultToAppDetails,
@@ -61,11 +61,7 @@ export function useAppSearch(initialSearchText = "", debounceMs = 500, entity?: 
       process.stderr.write(`Search error: ${err.message}\n`);
     }
     setError(errorMessage);
-    showToast({
-      style: Toast.Style.Failure,
-      title: "Search Failed",
-      message: errorMessage,
-    });
+    void showError(err, { title: "Search Failed", message: errorMessage, ignoreAbort: false });
   };
 
   // Define the search function

@@ -3,6 +3,7 @@
  * Provides a counter that updates Raycast toasts as promises settle
  */
 
+import { failToast } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
 
@@ -165,22 +166,21 @@ export class AsyncProgress {
     const allFailed = this.successful === 0;
 
     if (allFailed) {
-      this.toast.style = Toast.Style.Failure;
-      this.toast.title = "All operations failed";
-      this.toast.message = `${this.failed} of ${this.options.totalItems} operations failed`;
+      failToast(this.toast, new Error(`${this.failed} of ${this.options.totalItems} operations failed`), {
+        title: "All operations failed",
+      });
     } else if (hasFailures) {
-      this.toast.style = Toast.Style.Failure;
-      this.toast.title = "Operations partially completed";
-
+      let message: string;
       if (this.options.platformTracking && Object.keys(this.platformProgress).length > 0) {
         const platformSummary = Object.entries(this.platformProgress)
           .filter(([, progress]) => progress.total > 0)
           .map(([platform, progress]) => `${platform}: ${progress.successful}/${progress.total}`)
           .join(", ");
-        this.toast.message = `${this.successful}/${this.options.totalItems} successful | ${platformSummary}`;
+        message = `${this.successful}/${this.options.totalItems} successful | ${platformSummary}`;
       } else {
-        this.toast.message = `${this.successful}/${this.options.totalItems} successful, ${this.failed} failed`;
+        message = `${this.successful}/${this.options.totalItems} successful, ${this.failed} failed`;
       }
+      failToast(this.toast, new Error(message), { title: "Operations partially completed" });
     } else {
       this.toast.style = Toast.Style.Success;
       this.toast.title = "All operations completed";

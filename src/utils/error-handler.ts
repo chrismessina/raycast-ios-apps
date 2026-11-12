@@ -1,7 +1,7 @@
 // Centralized error handling utility for iOS Apps extension
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { open, openExtensionPreferences, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { invalidateAuthentication, loginToAppleId, Needs2FAError, NeedsLoginError } from "./auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 
@@ -52,11 +52,11 @@ async function handleSuggestedAction(action: string): Promise<void> {
         // Fallback to opening About This Mac storage view
         try {
           await open("/System/Applications/Utilities/Disk Utility.app");
-        } catch {
-          await showToast({
-            style: Toast.Style.Failure,
+        } catch (error) {
+          await showError(error, {
             title: "Cannot open disk utility",
             message: "Please manually check your disk space in System Preferences > Storage",
+            ignoreAbort: false,
           });
         }
       }
@@ -132,25 +132,22 @@ export async function handleToolError(
   shouldThrow = true,
   suggestedAction?: string,
 ): Promise<void> {
-  // Extract a clean error message and create a proper Error object
+  // Extract a clean error message for the toast
   const errorMessage = extractErrorMessage(error);
-  const cleanError = new Error(errorMessage);
 
   // Log the error with context
   logger.error(`[${context}] Error: ${errorMessage}`);
 
   // Show user-friendly toast using Raycast conventions
-  if (suggestedAction) {
-    await showFailureToast(cleanError, {
-      title: userMessage,
-      primaryAction: {
-        title: suggestedAction,
-        onAction: () => handleSuggestedAction(suggestedAction),
-      },
-    });
-  } else {
-    await showFailureToast(cleanError, { title: userMessage });
-  }
+  // The original error goes to the clipboard (stack included); the toast shows the clean message.
+  await showError(error, {
+    title: userMessage,
+    message: errorMessage,
+    ignoreAbort: false,
+    action: suggestedAction
+      ? { title: suggestedAction, onAction: () => handleSuggestedAction(suggestedAction) }
+      : undefined,
+  });
 
   if (shouldThrow) {
     throw new Error(`${userMessage}: ${errorMessage}`);
@@ -280,11 +277,7 @@ export async function handleAuthError(
   }
 
   if (isCredentialError && pushLoginForm) {
-    await showToast({
-      style: Toast.Style.Failure,
-      title: "Login Failed",
-      message: "Redirecting to login form...",
-    });
+    await showError(error, { title: "Login Failed", message: "Redirecting to login form...", ignoreAbort: false });
     pushLoginForm(async () => {
       try {
         await loginToAppleId();
@@ -299,11 +292,7 @@ export async function handleAuthError(
     });
     return;
   } else if (is2FARequired && push2FAForm) {
-    await showToast({
-      style: Toast.Style.Failure,
-      title: "2FA Required",
-      message: "Redirecting to 2FA form...",
-    });
+    await showError(error, { title: "2FA Required", message: "Redirecting to 2FA form...", ignoreAbort: false });
     push2FAForm(async () => {
       try {
         await loginToAppleId();
@@ -322,21 +311,21 @@ export async function handleAuthError(
   // Show user-friendly toast with specific guidance
   if (redirectToAuthForm) {
     // Redirect to auth form instead of showing preferences toast
-    await showToast({
-      style: Toast.Style.Failure,
+    await showError(error, {
       title: toastTitle,
       message: `${userMessage}. Redirecting to sign-in form...`,
+      ignoreAbort: false,
     });
 
     // Redirect to auth form with the error message
     redirectToAuthForm(errorMessage);
   } else {
     // Show traditional preferences toast
-    await showToast({
-      style: Toast.Style.Failure,
+    await showError(error, {
       title: toastTitle,
       message: `${userMessage}. Please check your Apple ID settings.`,
-      primaryAction: showPreferencesAction
+      ignoreAbort: false,
+      action: showPreferencesAction
         ? {
             title: "Open Preferences",
             onAction: () => openExtensionPreferences(),

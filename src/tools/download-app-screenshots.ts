@@ -1,6 +1,6 @@
+import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast, Tool } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import type { ITunesResult, PlatformType } from "../types";
 import { filterAndSortApps, isExactMatch, isSignificantlyMorePopular } from "../utils/app-search";
 import { scrapeAppStoreScreenshots } from "../utils/app-store-scraper";
@@ -37,9 +37,7 @@ export default async function (input: Input) {
       const searchResults = await searchITunesApps(bundleId, 1);
 
       if (searchResults.length === 0) {
-        toast.style = Toast.Style.Failure;
-        toast.title = "App Not Found";
-        toast.message = `No app found with bundle ID: ${bundleId}`;
+        failToast(toast, new Error(`No app found with bundle ID: ${bundleId}`), { title: "App Not Found" });
         return;
       }
 
@@ -49,9 +47,7 @@ export default async function (input: Input) {
       const searchResults = await searchITunesApps(query, 10);
 
       if (searchResults.length === 0) {
-        toast.style = Toast.Style.Failure;
-        toast.title = "App Not Found";
-        toast.message = `No apps found matching "${query}"`;
+        failToast(toast, new Error(`No apps found matching "${query}"`), { title: "App Not Found" });
         return;
       }
 
@@ -59,9 +55,7 @@ export default async function (input: Input) {
       const sortedApps = filterAndSortApps(searchResults, query);
 
       if (sortedApps.length === 0) {
-        toast.style = Toast.Style.Failure;
-        toast.title = "No Relevant Apps";
-        toast.message = `No relevant apps found matching "${query}"`;
+        failToast(toast, new Error(`No relevant apps found matching "${query}"`), { title: "No Relevant Apps" });
         return;
       }
 
@@ -79,9 +73,7 @@ export default async function (input: Input) {
 
     const downloadsDir = await getDownloadsDirectory();
     if (!downloadsDir) {
-      toast.style = Toast.Style.Failure;
-      toast.title = "Error";
-      toast.message = "Could not determine downloads directory";
+      failToast(toast, new Error("Could not determine downloads directory"), { title: "Error" });
       return;
     }
 
@@ -91,11 +83,15 @@ export default async function (input: Input) {
 
     const screenshots = await scrapeAppStoreScreenshots(appDetails, platformOverride);
     if (screenshots.length === 0) {
-      toast.style = Toast.Style.Failure;
-      toast.title = "No Screenshots Found";
-      toast.message = platformOverride
-        ? `No ${platformOverride.join(", ")} screenshots available for this app`
-        : "No screenshots available for enabled platforms";
+      failToast(
+        toast,
+        new Error(
+          platformOverride
+            ? `No ${platformOverride.join(", ")} screenshots available for this app`
+            : "No screenshots available for enabled platforms",
+        ),
+        { title: "No Screenshots Found" },
+      );
       return;
     }
 
@@ -122,13 +118,13 @@ export default async function (input: Input) {
       toast.title = "Screenshots Downloaded";
       toast.message = `${screenshots.length} screenshots saved for ${appDetails.name}`;
     } else {
-      await showFailureToast(new Error("Failed to download screenshots. Check logs for details."), {
+      await showError(new Error("Failed to download screenshots. Check logs for details."), {
         title: "Download Failed",
       });
     }
   } catch (error) {
     logger.error(`[download-app-screenshots] Error:`, error);
-    await showFailureToast(error instanceof Error ? error : new Error(String(error)), { title: "Download Error" });
+    await showError(error, { title: "Download Error", ignoreAbort: false });
   }
 }
 

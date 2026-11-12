@@ -1,7 +1,7 @@
 // Displays comprehensive information about an iOS app with metadata and actions
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { Detail } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { AppActionPanel } from "../components/app-action-panel";
 import { AppDetailContent } from "../components/app-detail-content";
 import { useAppDetails, useAppDownload, useFavoriteApps } from "../hooks";
@@ -36,7 +36,7 @@ export default function AppDetailView({ app: initialApp }: AppDetailViewProps) {
           app={app}
           onDownload={() => {
             if (!app.bundleId) {
-              showFailureToast(new Error("Bundle ID is missing"), { title: "Cannot download app" });
+              void showError(new Error("Bundle ID is missing"), { title: "Cannot download app" });
               return Promise.resolve(null);
             }
             return downloadAppDetails(app);

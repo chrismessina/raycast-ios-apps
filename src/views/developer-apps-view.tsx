@@ -1,7 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
 import { Icon, List } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { AppListItem } from "../components/app-list-item";
 import { useAppDownload, useFavoriteApps } from "../hooks";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
@@ -45,7 +45,7 @@ export function DeveloperAppsView({ artistId, developerName }: DeveloperAppsView
         logger.error(`[Developer] Failed to load apps for artistId ${artistId}:`, err);
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
-          await showFailureToast(err, { title: `Could not load apps by ${developerName}` });
+          await showError(err, { title: `Could not load apps by ${developerName}`, ignoreAbort: false });
         }
       } finally {
         if (!cancelled) {

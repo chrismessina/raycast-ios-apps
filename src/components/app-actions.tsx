@@ -1,5 +1,5 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { Action, ActionPanel, Icon, Keyboard } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
 import { downloadAppIcon } from "../utils/icon-downloader";
@@ -52,7 +52,7 @@ export function AppActions({
       return await onDownload(app);
     } catch (error) {
       console.error("Error downloading app:", error);
-      showFailureToast({ title: "Error downloading app", message: String(error) });
+      void showError(error, { title: "Error downloading app", message: String(error), ignoreAbort: false });
       return null;
     }
   };
@@ -67,7 +67,7 @@ export function AppActions({
       return await downloadScreenshots(app.bundleId, app.name, app.version);
     } catch (error) {
       console.error("Error downloading screenshots:", error);
-      showFailureToast({ title: "Error downloading screenshots", message: String(error) });
+      void showError(error, { title: "Error downloading screenshots", message: String(error), ignoreAbort: false });
       return null;
     }
   };
@@ -82,7 +82,7 @@ export function AppActions({
       return await downloadAppIcon(app.bundleId, app.name, app.iconUrl);
     } catch (error) {
       console.error("Error downloading icon:", error);
-      showFailureToast({ title: "Error downloading icon", message: String(error) });
+      void showError(error, { title: "Error downloading icon", message: String(error), ignoreAbort: false });
       return null;
     }
   };

@@ -1,3 +1,4 @@
+import { failToast } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
 import { searchApps } from "../ipatool";
@@ -128,9 +129,7 @@ export default async function searchIosApps(input: Input) {
       enrichmentToast.title = "Apps partially enriched";
       enrichmentToast.message = `Enriched ${apps.length - failedEnrichments}/${apps.length} apps`;
     } else {
-      enrichmentToast.style = Toast.Style.Failure;
-      enrichmentToast.title = "Enrichment failed";
-      enrichmentToast.message = "Could not enrich any app details";
+      failToast(enrichmentToast, new Error("Could not enrich any app details"), { title: "Enrichment failed" });
     }
 
     return { apps: formattedApps };

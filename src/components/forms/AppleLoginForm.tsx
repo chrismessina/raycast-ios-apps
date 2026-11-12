@@ -1,7 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useState } from "react";
 import { Action, ActionPanel, Form } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 
 interface AppleLoginFormProps {
   onSubmit: (credentials: { email: string; password: string }) => void | Promise<void>;
@@ -36,7 +36,7 @@ export function AppleLoginForm({ onSubmit, initialEmail }: AppleLoginFormProps) 
       await onSubmit({ email, password });
     } catch (error) {
       logger.error("[Auth] Login form error", error);
-      await showFailureToast(error, { title: "Login failed" });
+      await showError(error, { title: "Login failed", ignoreAbort: false });
     } finally {
       setIsSubmitting(false);
     }

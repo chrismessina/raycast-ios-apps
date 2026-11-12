@@ -10,7 +10,8 @@
 - Download IPAs through `ipatool`, renamed to `{App Name} {Version}.ipa`, with integrity verification
 - Downloads run in the background and keep going if you close Raycast; a finished one is saved the next time you open a download command
 - Cancel a download from its progress toast
-- Download full-resolution screenshots and app icons, organised per platform
+- Download full-resolution screenshots and app icons, organized per platform; a Mac-only app gets its Mac screenshots even when Mac is off in preferences
+- Every error toast has a Copy Error action
 - Favorites with Markdown and CSV export, plus download history and recent searches
 - Five Raycast AI tools: search, details, current version, download, and screenshot download
 - Run Doctor: checks ipatool and your Apple ID, updates a Homebrew ipatool in place, and takes the verification code Apple sends when it expires a session

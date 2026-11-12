@@ -1,5 +1,5 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { Action, ActionPanel, Clipboard, Icon, Keyboard, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
 import { getAppMarkdown } from "./app-detail-content";
@@ -19,8 +19,10 @@ export function CopyActions({ app, isFavorited = false }: CopyActionsProps) {
       await Clipboard.copy(text);
       showToast(Toast.Style.Success, toastTitle, "Copied to clipboard");
     } catch (error) {
-      showFailureToast(error instanceof Error ? error : new Error("Could not copy to clipboard"), {
+      void showError(error, {
         title: "Failed to copy",
+        message: error instanceof Error ? undefined : "Could not copy to clipboard",
+        ignoreAbort: false,
       });
     }
   }

@@ -1,3 +1,4 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useEffect, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import { STORAGE_KEYS, type RecentSearch } from "../utils/storage";
@@ -77,10 +78,10 @@ export function useRecentSearches(limit = 50): UseRecentSearchesResult {
         await persistSearches(newSearches);
       } catch (error) {
         console.error("Error adding recent search:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Save Search",
           message: "Could not add to recent searches",
+          ignoreAbort: false,
         });
       }
     },
@@ -102,10 +103,10 @@ export function useRecentSearches(limit = 50): UseRecentSearchesResult {
         });
       } catch (error) {
         console.error("Error removing recent search:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Remove Search",
           message: "Could not remove recent search",
+          ignoreAbort: false,
         });
       }
     },
@@ -126,10 +127,10 @@ export function useRecentSearches(limit = 50): UseRecentSearchesResult {
       });
     } catch (error) {
       console.error("Error clearing recent searches:", error);
-      await showToast({
-        style: Toast.Style.Failure,
+      await showError(error, {
         title: "Failed to Clear Searches",
         message: "Could not clear recent searches",
+        ignoreAbort: false,
       });
     }
   }, []);

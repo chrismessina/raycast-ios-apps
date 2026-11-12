@@ -1,6 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useMemo, useRef, useState } from "react";
-import { Clipboard, Keyboard, showToast, Toast } from "@raycast/api";
+import { showToast, Toast } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
 import { listPurchases, PURCHASES_PAGE_SIZE } from "../ipatool";
 import type { AppDetails, IpaToolPurchasedApp } from "../types";
@@ -199,19 +200,7 @@ export function usePurchasedApps(sortKey: PurchasesSortKey, enabled = true) {
       execute: enabled,
       onError: async (fetchError) => {
         logger.error("[purchases] Page fetch failed", fetchError);
-        const message = fetchError instanceof Error ? fetchError.message : String(fetchError);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Couldn't load purchases",
-          message,
-          primaryAction: {
-            title: "Copy Error",
-            shortcut: Keyboard.Shortcut.Common.Copy,
-            onAction: () => {
-              Clipboard.copy(message);
-            },
-          },
-        });
+        await showError(fetchError, { title: "Couldn't load purchases", ignoreAbort: false });
       },
     },
   );

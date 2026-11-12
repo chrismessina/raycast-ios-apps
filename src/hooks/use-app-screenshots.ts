@@ -1,5 +1,5 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useState } from "react";
-import { showFailureToast } from "@raycast/utils";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
 
@@ -57,7 +57,7 @@ export function useAppScreenshots() {
         error: error instanceof Error ? error : new Error(String(error)),
         downloadPath: null,
       });
-      await showFailureToast(error, { title: "Failed to download screenshots" });
+      await showError(error, { title: "Failed to download screenshots", ignoreAbort: false });
       return null;
     }
   }, []);

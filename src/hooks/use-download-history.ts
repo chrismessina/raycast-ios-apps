@@ -1,3 +1,4 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
@@ -176,10 +177,10 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
         await loadData();
       } catch (error) {
         console.error("Error adding to download history:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Save History",
           message: "Could not add to download history",
+          ignoreAbort: false,
         });
       }
     },
@@ -201,10 +202,10 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
         });
       } catch (error) {
         console.error("Error removing from download history:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Remove",
           message: "Could not remove from download history",
+          ignoreAbort: false,
         });
       }
     },
@@ -225,10 +226,10 @@ export function useDownloadHistory(historyLimit = 100): UseDownloadHistoryResult
       });
     } catch (error) {
       console.error("Error clearing download history:", error);
-      await showToast({
-        style: Toast.Style.Failure,
+      await showError(error, {
         title: "Failed to Clear History",
         message: "Could not clear download history",
+        ignoreAbort: false,
       });
     }
   }, []);

@@ -1,3 +1,4 @@
+import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useRef } from "react";
 import {
@@ -12,7 +13,7 @@ import {
   showToast,
   Toast,
 } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
+import { useCachedPromise } from "@raycast/utils";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
 import { getStoredCredentials, loginToAppleId, Needs2FAError } from "./utils/auth";
 import {
@@ -86,14 +87,14 @@ export default function Doctor() {
       const { installed: now, latest } = await readIpatoolStatus();
       if (!now) {
         // brew removes the old Cellar version, so a version-pinned path stops running.
-        toast.style = Toast.Style.Failure;
-        toast.title = "ipatool No Longer Runs";
-        toast.message = "Check the ipatool path in the extension preferences.";
+        failToast(toast, new Error("Check the ipatool path in the extension preferences."), {
+          title: "ipatool No Longer Runs",
+        });
       } else if (latest && now !== latest) {
         // brew succeeded but its formula has not caught up with the release.
-        toast.style = Toast.Style.Failure;
-        toast.title = `Homebrew Doesn't Have v${latest} Yet`;
-        toast.message = `Still on v${now}. Try again later, or install the release by hand.`;
+        failToast(toast, new Error(`Still on v${now}. Try again later, or install the release by hand.`), {
+          title: `Homebrew Doesn't Have v${latest} Yet`,
+        });
       } else {
         toast.style = Toast.Style.Success;
         toast.title = now && now !== from ? `Updated ipatool to v${now}` : "ipatool Is Up to Date";
@@ -102,7 +103,7 @@ export default function Doctor() {
     } catch (error) {
       logger.error("[doctor] brew upgrade ipatool failed:", error);
       await toast.hide();
-      await showFailureToast(error, { title: "Could Not Update ipatool" });
+      await showError(error, { title: "Could Not Update ipatool", ignoreAbort: false });
     } finally {
       remedying.current = false;
       quietRun.current = true;

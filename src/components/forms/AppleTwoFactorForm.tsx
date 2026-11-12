@@ -1,7 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useRef, useState } from "react";
 import { Action, ActionPanel, Form, Keyboard, showToast, Toast, useNavigation } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { loginToAppleId } from "../../utils/auth";
 
 interface AppleTwoFactorFormProps {
@@ -51,10 +51,10 @@ export function AppleTwoFactorForm({ onSubmit, credentials }: AppleTwoFactorForm
       const message = error instanceof Error ? error.message : String(error);
       // Check if the code may have expired
       if (/expired|invalid.*code|wrong.*code/i.test(message)) {
-        await showFailureToast(error, { title: "Code may have expired" });
+        await showError(error, { title: "Code may have expired", ignoreAbort: false });
         logger.warn("[Auth] 2FA code may have expired, suggesting resend");
       } else {
-        await showFailureToast(error, { title: "Verification failed" });
+        await showError(error, { title: "Verification failed", ignoreAbort: false });
       }
       // Clear code field so user can retry
       setCode("");
@@ -84,7 +84,7 @@ export function AppleTwoFactorForm({ onSubmit, credentials }: AppleTwoFactorForm
           message: "Check your devices for a new code",
         });
       } else {
-        await showToast({ style: Toast.Style.Failure, title: "Couldn't resend code", message });
+        await showError(err, { title: "Couldn't resend code", message, ignoreAbort: false });
       }
     } finally {
       setIsResending(false);

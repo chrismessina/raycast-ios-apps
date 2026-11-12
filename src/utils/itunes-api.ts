@@ -1,6 +1,6 @@
 // iTunes API utility functions
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
-import { showFailureToast } from "@raycast/utils";
 import { AppDetails, IpaToolSearchApp, ITunesResponse, ITunesResult } from "../types";
 import { ITUNES_API_BASE_URL, ITUNES_LOOKUP_ENDPOINT, ITUNES_SEARCH_ENDPOINT } from "./constants";
 import { DownloadPlatform, platformForITunesKind } from "./download-layout";
@@ -266,7 +266,11 @@ export async function fetchITunesAppDetails(bundleId: string): Promise<ITunesRes
     return data.results[0];
   } catch (error) {
     console.error(`[iTunes API] Error fetching app details for ${bundleId} after retries:`, error);
-    await showFailureToast(error, { title: "iTunes is temporarily unavailable", message: "Please try again." });
+    await showError(error, {
+      title: "iTunes is temporarily unavailable",
+      message: "Please try again.",
+      ignoreAbort: false,
+    });
     return null;
   }
 }
@@ -314,7 +318,11 @@ export async function searchITunesApps(
     return data.results;
   } catch (error) {
     logger.error(`[iTunes API] Error searching for "${term}" after retries:`, error);
-    await showFailureToast(error, { title: "iTunes is temporarily unavailable", message: "Please try again." });
+    await showError(error, {
+      title: "iTunes is temporarily unavailable",
+      message: "Please try again.",
+      ignoreAbort: false,
+    });
     return [];
   }
 }

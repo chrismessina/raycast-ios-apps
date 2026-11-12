@@ -1,5 +1,5 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { Clipboard, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 
 /**
  * Hook for clipboard operations
@@ -17,7 +17,7 @@ export function useClipboard() {
       await Clipboard.copy(text);
       showToast(Toast.Style.Success, toastTitle, toastMessage);
     } catch (error) {
-      showFailureToast(error, { title: "Failed to copy to clipboard" });
+      void showError(error, { title: "Failed to copy to clipboard", ignoreAbort: false });
     }
   };
 

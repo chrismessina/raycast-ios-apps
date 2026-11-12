@@ -1,3 +1,4 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useCallback, useEffect, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
@@ -91,10 +92,10 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
         });
       } catch (error) {
         console.error("Error adding favorite app:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Add Favorite",
           message: "Could not add app to favorites",
+          ignoreAbort: false,
         });
       }
     },
@@ -116,10 +117,10 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
         });
       } catch (error) {
         console.error("Error removing favorite app:", error);
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(error, {
           title: "Failed to Remove Favorite",
           message: "Could not remove app from favorites",
+          ignoreAbort: false,
         });
       }
     },
@@ -140,10 +141,10 @@ export function useFavoriteApps(): UseFavoriteAppsResult {
       });
     } catch (error) {
       console.error("Error clearing favorite apps:", error);
-      await showToast({
-        style: Toast.Style.Failure,
+      await showError(error, {
         title: "Failed to Clear Favorites",
         message: "Could not clear favorite apps",
+        ignoreAbort: false,
       });
     }
   }, []);

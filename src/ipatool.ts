@@ -3,8 +3,9 @@ import fs from "fs";
 import https from "https";
 import path from "path";
 import { promisify } from "util";
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
-import { Alert, confirmAlert, showHUD, showToast, Toast } from "@raycast/api";
+import { Alert, confirmAlert, showHUD } from "@raycast/api";
 import { getConfig } from "./config";
 import { IpaToolPurchasesResponse, IpaToolSearchApp, IpaToolSearchResponse } from "./types";
 import {
@@ -240,10 +241,11 @@ export async function validateDownloadPrereqs(
       const errorMsg = `Cannot write to downloads directory: ${downloadsDir}. Please check permissions or change the download path in preferences.`;
       logger.error(`[validation] Write permission check failed:`, error);
 
-      await showToast({
-        style: Toast.Style.Failure,
+      await showError(error, {
         title: "Permission Error",
         message: "Cannot write to downloads directory",
+        copyContext: downloadsDir,
+        ignoreAbort: false,
       });
 
       return { isValid: false, errorMessage: errorMsg };
@@ -273,10 +275,9 @@ export async function validateDownloadPrereqs(
         const errorMsg = `Insufficient disk space. Available: ${availableMB} MB, Required: ${requiredSpaceMB} MB. Please free up space or change download location.`;
         logger.error(`[validation] Insufficient disk space`);
 
-        await showToast({
-          style: Toast.Style.Failure,
+        await showError(new Error(`Need ${requiredSpaceMB} MB, have ${availableMB} MB`), {
           title: "Insufficient Disk Space",
-          message: `Need ${requiredSpaceMB} MB, have ${availableMB} MB`,
+          copyContext: downloadsDir,
         });
 
         return { isValid: false, errorMessage: errorMsg };
@@ -362,10 +363,10 @@ export async function validateDownloadPrereqs(
           const errorMsg = `Network connectivity check failed. Please check your internet connection and try again.`;
           logger.error(`[validation] Network connectivity validation failed`);
 
-          await showToast({
-            style: Toast.Style.Failure,
+          await showError(networkError, {
             title: "Network Error",
             message: "Cannot reach apple.com",
+            ignoreAbort: false,
           });
 
           return { isValid: false, errorMessage: errorMsg };
@@ -388,10 +389,10 @@ export async function validateDownloadPrereqs(
     const errorMsg = `Prerequisite validation failed: ${error instanceof Error ? error.message : String(error)}`;
     logger.error(`[validation] Validation error:`, error);
 
-    await showToast({
-      style: Toast.Style.Failure,
+    await showError(error, {
       title: "Validation Error",
       message: "Could not validate download requirements",
+      ignoreAbort: false,
     });
 
     return { isValid: false, errorMessage: errorMsg };

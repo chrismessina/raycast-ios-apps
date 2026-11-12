@@ -1,26 +1,11 @@
 import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { basename, extname, join } from "path";
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useCallback } from "react";
 import { Clipboard, showInFinder, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
-import { stringifyError } from "../utils/log-actions";
 import { useFavoriteApps, type FavoriteApp } from "./use-favorite-apps";
-
-/**
- * House style: every failure toast offers the error on the clipboard.
- * `showFailureToast` renders one line; the stack is what makes a report useful.
- */
-function copyErrorAction(error: unknown): Toast.ActionOptions {
-  return {
-    title: "Copy Error",
-    onAction: (toast) => {
-      Clipboard.copy(stringifyError(error) ?? "Unknown error");
-      toast.hide();
-    },
-  };
-}
 
 /**
  * Quote one CSV cell, neutralising spreadsheet formula injection.
@@ -159,7 +144,7 @@ export function useExportFavorites() {
       });
     } catch (error) {
       logger.error("[export] Markdown export failed:", error);
-      await showFailureToast(error, { title: "Export Failed", primaryAction: copyErrorAction(error) });
+      await showError(error, { title: "Export Failed", ignoreAbort: false });
     }
   }, [favoriteApps]);
 
@@ -193,7 +178,7 @@ export function useExportFavorites() {
       });
     } catch (error) {
       logger.error("[export] CSV export failed:", error);
-      await showFailureToast(error, { title: "Export Failed", primaryAction: copyErrorAction(error) });
+      await showError(error, { title: "Export Failed", ignoreAbort: false });
     }
   }, [favoriteApps]);
 

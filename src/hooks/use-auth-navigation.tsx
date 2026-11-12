@@ -1,7 +1,7 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import React, { useCallback, useRef } from "react";
 import { popToRoot as apiPopToRoot, useNavigation } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { AppleLoginForm } from "../components/forms/AppleLoginForm";
 import { AppleTwoFactorForm } from "../components/forms/AppleTwoFactorForm";
 import { getAppleIdFromStorage, getPasswordFromStorage, loginToAppleId, saveCredentials } from "../utils/auth";
@@ -39,7 +39,7 @@ export function useAuthNavigation(): AuthNavigationHelpers {
                 await loginToAppleId(credentials?.email, credentials?.password, code);
               } catch (error) {
                 logger.error("[Auth] 2FA verification failed", error);
-                await showFailureToast(error, { title: "Verification failed" });
+                await showError(error, { title: "Verification failed", ignoreAbort: false });
                 // Don't pop — keep form open so user can retry
                 return;
               }
@@ -105,7 +105,7 @@ export function useAuthNavigation(): AuthNavigationHelpers {
               } else {
                 // Show error toast and keep form open for retry
                 logger.error("[Auth] Login form submission failed", error);
-                await showFailureToast(error, { title: "Login failed" });
+                await showError(error, { title: "Login failed", ignoreAbort: false });
               }
             }
           }}

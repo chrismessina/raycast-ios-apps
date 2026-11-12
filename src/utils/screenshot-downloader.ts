@@ -2,10 +2,10 @@
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
+import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import pLimit from "p-limit";
 import { Clipboard, getPreferenceValues, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { getConfigValue } from "../config";
 import { AppDetails, PlatformDirectories, PlatformType, ScreenshotInfo } from "../types";
 import { getDownloadsDirectory, sanitizeFilename, validateSafePath } from "./paths";
@@ -775,16 +775,14 @@ export async function downloadAppScreenshots(
 
       logger.warn(`[Screenshot Downloader] Partial success - ${failureSummary}`);
 
-      await showFailureToast({
+      await showError(new Error(`Successful: ${platformSuccessSummary}`), {
         title: `${failureCount} downloads failed`,
-        message: `Successful: ${platformSuccessSummary}`,
+        copyContext: failureSummary,
       });
 
       await showHUD(`⚠ ${successCount}/${totalScreenshots} screenshots downloaded. Check logs for failed URLs.`);
     } else {
-      toast.style = Toast.Style.Failure;
-      toast.title = "No screenshots downloaded";
-      toast.message = "All downloads failed";
+      failToast(toast, new Error("All downloads failed"), { title: "No screenshots downloaded" });
 
       // Group failures by platform
       const failuresByPlatform: Record<string, number> = {};
@@ -796,9 +794,10 @@ export async function downloadAppScreenshots(
         .map(([platform, count]) => `${platform}: ${count} failed`)
         .join(", ");
 
-      await showFailureToast({
+      await showError(new Error(failureSummary), {
         title: "All downloads failed",
         message: failureSummary.length > 100 ? `${failureSummary.substring(0, 100)}...` : failureSummary,
+        copyContext: failureSummary.length > 100 ? failureSummary : undefined,
       });
 
       await showHUD("✗ All screenshot downloads failed. Check logs for retry URLs.");
@@ -809,7 +808,10 @@ export async function downloadAppScreenshots(
     return screenshotsDir;
   } catch (error) {
     logger.error("[Screenshot Downloader] Error downloading screenshots:", error);
-    showFailureToast("Failed to download screenshots");
+    void showError(error, {
+      title: "Failed to Download Screenshots",
+      ignoreAbort: false,
+    });
     return "";
   }
 }
@@ -856,7 +858,7 @@ export async function downloadScreenshots(bundleId: string, appName = "", appVer
     // Get the downloads directory
     const downloadsDir = await getDownloadsDirectory();
     if (!downloadsDir) {
-      showFailureToast("Could not determine downloads directory");
+      void showError(new Error("Check the Download Path preference."), { title: "Couldn't Find Downloads Folder" });
       return null;
     }
 
@@ -888,17 +890,17 @@ export async function downloadScreenshots(bundleId: string, appName = "", appVer
         logger.log(`[Screenshot Downloader] Could not find app ID for ${bundleId} in iTunes API`);
 
         // Update toast to show we couldn't find the app
-        toast.style = Toast.Style.Failure;
-        toast.title = "App details incomplete";
-        toast.message = `Could not find complete details for ${bundleId}`;
+        failToast(toast, new Error(`Could not find complete details for ${bundleId}`), {
+          title: "App details incomplete",
+        });
       }
     } catch (error) {
       logger.error(`[Screenshot Downloader] Error fetching app details from iTunes API:`, error);
       // Show error toast
-      await showToast({
-        style: Toast.Style.Failure,
+      await showError(error, {
         title: "Error fetching app details",
         message: `Failed to get details for ${bundleId}`,
+        ignoreAbort: false,
       });
       // Continue with the basic app details
     }
@@ -923,15 +925,17 @@ export async function downloadScreenshots(bundleId: string, appName = "", appVer
       );
 
       if (!screenshots || screenshots.length === 0) {
-        scrapingToast.style = Toast.Style.Failure;
-
         // Check if no platforms are enabled in preferences
         if (!areAnyPlatformsEnabled()) {
-          scrapingToast.title = "No Screenshots To Download!";
-          scrapingToast.message = "To download screenshots, enable at least one device type in preferences.";
+          failToast(
+            scrapingToast,
+            new Error("To download screenshots, enable at least one device type in preferences."),
+            { title: "No Screenshots To Download!" },
+          );
         } else {
-          scrapingToast.title = "No screenshots found";
-          scrapingToast.message = "This app may not have screenshots available";
+          failToast(scrapingToast, new Error("This app may not have screenshots available"), {
+            title: "No screenshots found",
+          });
         }
 
         return null;
@@ -957,14 +961,15 @@ export async function downloadScreenshots(bundleId: string, appName = "", appVer
       return await downloadAppScreenshots(screenshots, app, downloadsDir);
     } catch (scrapingError) {
       logger.error("[Screenshot Downloader] Error scraping screenshots:", scrapingError);
-      scrapingToast.style = Toast.Style.Failure;
-      scrapingToast.title = "Failed to fetch screenshots";
-      scrapingToast.message = scrapingError instanceof Error ? scrapingError.message : String(scrapingError);
+      failToast(scrapingToast, scrapingError, { title: "Failed to fetch screenshots", ignoreAbort: false });
       throw scrapingError;
     }
   } catch (error) {
     logger.error("[Screenshot Downloader] Error in downloadScreenshots:", error);
-    showFailureToast("Failed to download screenshots");
+    void showError(error, {
+      title: "Failed to Download Screenshots",
+      ignoreAbort: false,
+    });
     return null;
   }
 }

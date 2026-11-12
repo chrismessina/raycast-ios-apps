@@ -1,8 +1,8 @@
 import { ChildProcess, spawn, spawnSync } from "child_process";
 import { accessSync, constants, existsSync } from "fs";
+import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { openExtensionPreferences, showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
 import { createCopyLogsAction } from "./log-actions";
 import { IPATOOL_PATH, validateExecutablePath } from "./paths";
 
@@ -340,10 +340,9 @@ brew upgrade ipatool
 # Current expected path: ${IPATOOL_PATH}
   `.trim();
 
-  await showToast({
-    style: Toast.Style.Failure,
+  await showError(new Error("Check console for details"), {
     title: "ipatool Upgrade Instructions",
-    message: "Check console for details",
+    copyContext: instructions,
   });
 
   console.log("[ipatool] Upgrade Instructions:");
@@ -354,7 +353,7 @@ brew upgrade ipatool
  * Shows generic ipatool error
  */
 async function showGenericIpatoolError(error: unknown): Promise<void> {
-  await showFailureToast(error, { title: "ipatool validation failed" });
+  await showError(error, { title: "ipatool validation failed", ignoreAbort: false });
 }
 
 /**
@@ -373,10 +372,9 @@ brew uninstall ipatool
 brew install ipatool
   `.trim();
 
-  await showToast({
-    style: Toast.Style.Failure,
+  await showError(new Error("Check console for details"), {
     title: "Permission Fix Instructions",
-    message: "Check console for details",
+    copyContext: instructions,
   });
 
   console.log("[ipatool] Permission Fix Instructions:");
