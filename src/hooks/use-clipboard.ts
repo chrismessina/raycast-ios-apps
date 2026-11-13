@@ -1,5 +1,5 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { Clipboard, showToast, Toast } from "@raycast/api";
+import { showError } from "../utils/toast";
 
 /**
  * Hook for clipboard operations

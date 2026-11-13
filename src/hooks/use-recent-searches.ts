@@ -1,7 +1,7 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useEffect, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import { STORAGE_KEYS, type RecentSearch } from "../utils/storage";
+import { showError } from "../utils/toast";
 
 // Re-export for convenience
 export type { RecentSearch };

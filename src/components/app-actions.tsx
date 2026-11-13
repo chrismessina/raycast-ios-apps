@@ -1,10 +1,10 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { Action, ActionPanel, Icon, Keyboard } from "@raycast/api";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
 import { downloadAppIcon } from "../utils/icon-downloader";
 import { extractAppStoreId } from "../utils/parse-app-query";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
+import { showError } from "../utils/toast";
 import { DeveloperAppsView } from "../views/developer-apps-view";
 import { FavoriteActions } from "./favorite-actions";
 

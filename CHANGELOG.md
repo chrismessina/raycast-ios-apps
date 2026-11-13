@@ -12,6 +12,7 @@
 - Cancel a download from its progress toast
 - Download full-resolution screenshots and app icons, organized per platform; a Mac-only app gets its Mac screenshots even when Mac is off in preferences
 - Every error toast has a Copy Error action
+- When Apple blocks a sign-in until you act on your account, the error toast opens Apple's page for it
 - Favorites with Markdown and CSV export, plus download history and recent searches
 - Five Raycast AI tools: search, details, current version, download, and screenshot download
 - Run Doctor: checks ipatool and your Apple ID, updates a Homebrew ipatool in place, and takes the verification code Apple sends when it expires a session

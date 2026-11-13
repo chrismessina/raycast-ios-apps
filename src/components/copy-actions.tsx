@@ -1,7 +1,7 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { Action, ActionPanel, Clipboard, Icon, Keyboard, showToast, Toast } from "@raycast/api";
 import { AppDetails } from "../types";
 import { getAppStoreUrl } from "../utils/constants";
+import { showError } from "../utils/toast";
 import { getAppMarkdown } from "./app-detail-content";
 
 interface CopyActionsProps {

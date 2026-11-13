@@ -1,7 +1,7 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useState } from "react";
 import { AppDetails } from "../types";
 import { downloadScreenshots } from "../utils/screenshot-downloader";
+import { showError } from "../utils/toast";
 
 /**
  * Interface for the screenshot download state

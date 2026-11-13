@@ -1,4 +1,3 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useMemo, useRef, useState } from "react";
 import { showToast, Toast } from "@raycast/api";
@@ -6,6 +5,7 @@ import { useCachedPromise } from "@raycast/utils";
 import { listPurchases, PURCHASES_PAGE_SIZE } from "../ipatool";
 import type { AppDetails, IpaToolPurchasedApp } from "../types";
 import { convertITunesResultToAppDetails, lookupITunesAppsByIds } from "../utils/itunes-api";
+import { showError } from "../utils/toast";
 
 export type PurchasesSortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
 

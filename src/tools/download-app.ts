@@ -3,6 +3,7 @@ import { logger } from "@chrismessina/raycast-logger";
 import { Clipboard, showInFinder, showToast, Toast, Tool } from "@raycast/api";
 import { downloadApp, findExistingDownload, searchApps } from "../ipatool";
 import {
+  AppleAccountActionError,
   AppleAuthGateError,
   AppleEmptyResponseError,
   BuiltInAppError,
@@ -223,6 +224,11 @@ export default async function downloadIosApp(input: Input) {
       // Use the intelligent error handler which will detect auth errors and invalidate credentials
       await handleIpatoolError(downloadError, "download-app tool", undefined, "download", false);
 
+      // After the handler, whose toast carries Apple's link; the AI gets it too.
+      if (downloadError instanceof AppleAccountActionError) {
+        return { success: false, message: appleAccountMessage(downloadError) };
+      }
+
       // Analyze error to determine the return message
       const errorMessage = downloadError instanceof Error ? downloadError.message : String(downloadError);
       const errorInfo = analyzeIpatoolError(errorMessage, undefined, "download");
@@ -243,6 +249,10 @@ export default async function downloadIosApp(input: Input) {
     }
   } catch (error) {
     logger.error(`[download-app tool] Error:`, error);
+    // A search-stage sign-in hit Apple's dialog; its toast already showed.
+    if (error instanceof AppleAccountActionError) {
+      return { success: false, message: appleAccountMessage(error) };
+    }
     await handleDownloadError(
       error instanceof Error ? error : new Error(`Failed to download app: ${String(error)}`),
       "download app",
@@ -250,6 +260,11 @@ export default async function downloadIosApp(input: Input) {
     );
     return { success: false, message: "Download failed" };
   }
+}
+
+/** Apple's dialog with its link, for the AI to relay. */
+function appleAccountMessage(error: AppleAccountActionError): string {
+  return `${error.message} ${error.actionTitle}: ${error.url}`;
 }
 
 /**

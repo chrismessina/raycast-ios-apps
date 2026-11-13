@@ -1,6 +1,6 @@
 import { ChildProcess } from "child_process";
 import { logger } from "@chrismessina/raycast-logger";
-import { AppleAuthGateError } from "./errors";
+import { AppleAuthGateError, parseAppleAccountAction } from "./errors";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
 import { createSecureIpatoolProcess, executeIpatoolCommand } from "./ipatool-validator";
 
@@ -149,6 +149,14 @@ export async function login({ email, password, code, onTwoFactorPrompt }: LoginO
       if (info.is2FARequired) {
         logger.log("[ipatool-auth] 2FA required");
         resolve({ success: false, needs2FA: true, message: info.userMessage, raw: combined });
+        return;
+      }
+
+      // Checked before the friendly mapping, which would drop Apple's link.
+      const accountAction = parseAppleAccountAction(combined);
+      if (accountAction) {
+        logger.error("[ipatool-auth] Apple requires account action:", accountAction.message);
+        reject(accountAction);
         return;
       }
 

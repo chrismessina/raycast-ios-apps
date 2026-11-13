@@ -1,8 +1,8 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
 import { STORAGE_KEYS, withoutCachedITunesData } from "../utils/storage";
+import { showError } from "../utils/toast";
 
 export interface DownloadHistoryItem {
   app: AppDetails;

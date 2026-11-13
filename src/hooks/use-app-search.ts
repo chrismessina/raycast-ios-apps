@@ -1,4 +1,3 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { debounce } from "lodash";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,6 +9,7 @@ import {
   searchITunesApps,
 } from "../utils/itunes-api";
 import { parseAppQuery } from "../utils/parse-app-query";
+import { showError } from "../utils/toast";
 import { useRecentSearches, type RecentSearch } from "./use-recent-searches";
 
 interface UseAppSearchResult {

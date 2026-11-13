@@ -1,4 +1,3 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
 import { Icon, List } from "@raycast/api";
@@ -7,6 +6,7 @@ import { useAppDownload, useFavoriteApps } from "../hooks";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
 import { AppDetails } from "../types";
 import { ARTIST_LOOKUP_LIMIT, convertITunesResultToAppDetails, lookupITunesAppsByArtist } from "../utils/itunes-api";
+import { showError } from "../utils/toast";
 
 interface DeveloperAppsViewProps {
   artistId: number;

@@ -3,7 +3,6 @@ import fs from "fs";
 import https from "https";
 import path from "path";
 import { promisify } from "util";
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { Alert, confirmAlert, showHUD } from "@raycast/api";
 import { getConfig } from "./config";
@@ -21,7 +20,12 @@ import { extractFilePath, safeJsonParse } from "./utils/common";
 import { DownloadLayout, DownloadPlatform, layoutForFile, layoutForPlatform } from "./utils/download-layout";
 import { createOperationDirectory, DownloadInProgressError, removeOperationDirectory } from "./utils/download-lock";
 import { handleAppSearchError, handleAuthError, handleDownloadError, sanitizeQuery } from "./utils/error-handler";
-import { DownloadCanceledError, TWO_FACTOR_PROMPT_MESSAGE } from "./utils/errors";
+import {
+  AppleAccountActionError,
+  DownloadCanceledError,
+  parseAppleAccountAction,
+  TWO_FACTOR_PROMPT_MESSAGE,
+} from "./utils/errors";
 import { cleanAppNameForFilename } from "./utils/formatting";
 import {
   followIpaJob,
@@ -45,6 +49,7 @@ import {
   fetchITunesAppDetails,
 } from "./utils/itunes-api";
 import { getDownloadsDirectory, IPATOOL_PATH } from "./utils/paths";
+import { showError } from "./utils/toast";
 
 // Retry configuration for handling transient network errors
 const MAX_RETRIES = 3; // Maximum number of retry attempts
@@ -566,7 +571,15 @@ export async function purchaseApp(
     return { success: true };
   }
 
-  // Purchase failed — analyze the error from stdout JSON
+  // Purchase failed. Apple's account dialog first, kept typed for its link.
+  const accountAction = parseAppleAccountAction(stdout);
+  if (accountAction) {
+    logger.error(`[ipatool] Apple requires account action during purchase of ${displayName}`);
+    done({ result: "auth_error" });
+    throw accountAction;
+  }
+
+  // Otherwise analyze the error from stdout JSON
   const errorToAnalyze = lastError || stdout;
   logger.error(`[ipatool] Purchase failed for ${displayName}: ${lastError || "(no parsed error)"}`);
   const errorAnalysis = analyzeIpatoolError(errorToAnalyze, "", "download");
@@ -905,19 +918,30 @@ export async function listPurchases(page: number, limit = PURCHASES_PAGE_SIZE): 
   }
 
   logger.log(`[ipatool] Listing purchases: ipatool page ${page}, limit ${cappedLimit}`);
-  const { stdout } = await execFileAsync(IPATOOL_PATH, [
-    "list-purchases",
-    "--format",
-    "json",
-    "--non-interactive",
-    "-l",
-    cappedLimit.toString(),
-    "-p",
-    page.toString(),
-  ]);
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(IPATOOL_PATH, [
+      "list-purchases",
+      "--format",
+      "json",
+      "--non-interactive",
+      "-l",
+      cappedLimit.toString(),
+      "-p",
+      page.toString(),
+    ]));
+  } catch (error) {
+    // An expired token makes ipatool sign in again, which can hit Apple's
+    // account dialog; the failed command still carries its stdout.
+    const failedStdout = (error as { stdout?: unknown }).stdout;
+    const accountAction = typeof failedStdout === "string" ? parseAppleAccountAction(failedStdout) : undefined;
+    throw accountAction ?? error;
+  }
 
   // ipatool reports some failures on stdout with exit code 0, so a parsed
   // payload is not by itself a success.
+  const accountAction = parseAppleAccountAction(stdout);
+  if (accountAction) throw accountAction;
   const parsed = safeJsonParse<Partial<IpaToolPurchasesResponse> & { error?: string }>(stdout, {});
   if (parsed.error) {
     throw new Error(parsed.error);
@@ -1469,6 +1493,14 @@ async function interpretDownload(
       logger.error(`[ipatool] Could not parse JSON from stdout: ${parseError}`);
     }
 
+    // ipatool's silent re-sign-in can hit Apple's account dialog. Typed here,
+    // before any classification turns it into plain text and drops the link.
+    const accountAction = parseAppleAccountAction(stdout);
+    if (accountAction) {
+      logger.error(`[ipatool] Apple requires account action while downloading ${appName || bundleId}`);
+      return { kind: "failed", error: accountAction };
+    }
+
     // Check if this is a network error that might be transient.
     //
     // The STRUCTURED error wins. `--verbose` makes ipatool dump the whole HTTP
@@ -1638,6 +1670,11 @@ async function interpretDownload(
 
           if (purchaseError instanceof AppleAuthGateError) {
             logger.error(`[ipatool] Apple auth gate during license purchase for ${appName || bundleId}`);
+            return { kind: "failed", error: purchaseError };
+          }
+
+          if (purchaseError instanceof AppleAccountActionError) {
+            logger.error(`[ipatool] Apple requires account action during license purchase for ${appName || bundleId}`);
             return { kind: "failed", error: purchaseError };
           }
 

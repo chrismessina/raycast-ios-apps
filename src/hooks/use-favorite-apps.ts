@@ -1,9 +1,9 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useCallback, useEffect, useState } from "react";
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import type { AppDetails } from "../types";
 import { STORAGE_KEYS, withoutCachedITunesData } from "../utils/storage";
+import { showError } from "../utils/toast";
 
 export interface FavoriteApp {
   app: AppDetails;

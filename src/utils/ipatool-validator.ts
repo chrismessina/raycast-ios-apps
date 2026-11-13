@@ -1,10 +1,10 @@
 import { ChildProcess, spawn, spawnSync } from "child_process";
 import { accessSync, constants, existsSync } from "fs";
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { openExtensionPreferences, showToast, Toast } from "@raycast/api";
 import { createCopyLogsAction } from "./log-actions";
 import { IPATOOL_PATH, validateExecutablePath } from "./paths";
+import { showError } from "./toast";
 
 // Constants
 const IPATOOL_GITHUB_URL = "https://github.com/majd/ipatool";

@@ -2,13 +2,13 @@
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import pLimit from "p-limit";
 import { Clipboard, getPreferenceValues, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
 import { getConfigValue } from "../config";
 import { AppDetails, PlatformDirectories, PlatformType, ScreenshotInfo } from "../types";
 import { getDownloadsDirectory, sanitizeFilename, validateSafePath } from "./paths";
+import { failToast, showError } from "./toast";
 
 // Promisify fs functions
 const mkdirAsync = promisify(fs.mkdir);

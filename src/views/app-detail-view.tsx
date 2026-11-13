@@ -1,5 +1,4 @@
 // Displays comprehensive information about an iOS app with metadata and actions
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { Detail } from "@raycast/api";
 import { AppActionPanel } from "../components/app-action-panel";
@@ -7,6 +6,7 @@ import { AppDetailContent } from "../components/app-detail-content";
 import { useAppDetails, useAppDownload, useFavoriteApps } from "../hooks";
 import { useAuthNavigation } from "../hooks/use-auth-navigation";
 import { AppDetails } from "../types";
+import { showError } from "../utils/toast";
 
 interface AppDetailViewProps {
   app: AppDetails;

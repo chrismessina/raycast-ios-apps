@@ -3,9 +3,9 @@
  * Provides a counter that updates Raycast toasts as promises settle
  */
 
-import { failToast } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
+import { failToast } from "./toast";
 
 export interface ProgressOptions {
   title: string;

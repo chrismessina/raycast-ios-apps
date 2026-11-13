@@ -1,5 +1,4 @@
 import { isTerminal } from "@chrismessina/raycast-downloader";
-import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useState } from "react";
 import { Clipboard, showHUD, showInFinder, showToast, Toast } from "@raycast/api";
@@ -18,7 +17,7 @@ import {
 } from "../utils/auth";
 import { DownloadInProgressError } from "../utils/download-lock";
 import { handleAuthError, handleDownloadError } from "../utils/error-handler";
-import { DownloadCanceledError } from "../utils/errors";
+import { AppleAccountActionError, DownloadCanceledError } from "../utils/errors";
 import {
   JobFinishedElsewhereError,
   listIpaJobs,
@@ -33,6 +32,7 @@ import {
   fetchITunesAppDetails,
   resolveDownloadPlatform,
 } from "../utils/itunes-api";
+import { failToast, showError } from "../utils/toast";
 import { AuthNavigationHelpers } from "./use-auth-navigation";
 import { appendToDownloadHistory, updateStoredDownloadHistoryApp, useDownloadHistory } from "./use-download-history";
 
@@ -212,6 +212,17 @@ async function followDetachedDownload(meta: IpaJobMeta, alreadySettled: boolean,
 }
 
 /**
+ * A sign-in form finished but the download could not resume. The download
+ * itself reports its own failures, so this is the sign-in check after the form.
+ */
+async function reportResumeFailure(error: unknown, step: string): Promise<void> {
+  logger.error(`[useAppDownload] Resuming after ${step} failed:`, error);
+  // The ipatool validator has already shown its own toast with the remedy.
+  if (error instanceof IpatoolSetupError) return;
+  await showError(error, { title: "Couldn't Resume Download", ignoreAbort: false });
+}
+
+/**
  * Hook for downloading an app
  * @param authNavigation Optional auth navigation helpers for form redirects
  * @returns Object with download function and loading state
@@ -385,13 +396,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                   await resumeDownload();
                 } catch (authError) {
-                  const msg = authError instanceof Error ? authError.message : String(authError);
-                  const info = analyzeIpatoolError(msg);
-                  if (info.isAuthError) {
-                    logger.error(`[useAppDownload] Authentication failed after login:`, authError);
-                  } else {
-                    logger.error(`[useAppDownload] Download retry after login failed:`, authError);
-                  }
+                  await reportResumeFailure(authError, "login");
                 }
               });
             } else if (error instanceof Needs2FAError) {
@@ -405,13 +410,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                   await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                   await resumeDownload();
                 } catch (authError) {
-                  const msg = authError instanceof Error ? authError.message : String(authError);
-                  const info = analyzeIpatoolError(msg);
-                  if (info.isAuthError) {
-                    logger.error(`[useAppDownload] Authentication failed after 2FA:`, authError);
-                  } else {
-                    logger.error(`[useAppDownload] Download retry after 2FA failed:`, authError);
-                  }
+                  await reportResumeFailure(authError, "2FA");
                 }
               });
             }
@@ -671,6 +670,21 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
         return null;
       }
 
+      // Before the generic analysis below, which rebuilds the error from its
+      // message and would drop Apple's link.
+      if (error instanceof AppleAccountActionError) {
+        logger.error(`[useAppDownload] Apple requires account action for ${name} (${bundleId}).`);
+        if (progressToast) {
+          failToast(progressToast, error, {
+            title: "Apple Account Needs Attention",
+            ignoreAbort: false,
+          });
+        } else {
+          await handleAuthError(error, false);
+        }
+        return null;
+      }
+
       if (error instanceof AppleAuthGateError) {
         logger.error(`[useAppDownload] Apple auth gate for ${name} (${bundleId}); download is not possible.`);
         if (progressToast) {
@@ -762,13 +776,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                 await resumeDownload();
               } catch (authError) {
-                const msg = authError instanceof Error ? authError.message : String(authError);
-                const info = analyzeIpatoolError(msg);
-                if (info.isAuthError) {
-                  logger.error(`[useAppDownload] Authentication failed after login (catch):`, authError);
-                } else {
-                  logger.error(`[useAppDownload] Download retry after login failed (catch):`, authError);
-                }
+                await reportResumeFailure(authError, "login (catch)");
               }
             });
           } else {
@@ -783,13 +791,7 @@ export function useAppDownload(authNavigation?: AuthNavigationHelpers) {
                 await showToast({ style: Toast.Style.Animated, title: "Resuming download..." });
                 await resumeDownload();
               } catch (authError) {
-                const msg = authError instanceof Error ? authError.message : String(authError);
-                const info = analyzeIpatoolError(msg);
-                if (info.isAuthError) {
-                  logger.error(`[useAppDownload] Authentication failed after 2FA (catch):`, authError);
-                } else {
-                  logger.error(`[useAppDownload] Download retry after 2FA failed (catch):`, authError);
-                }
+                await reportResumeFailure(authError, "2FA (catch)");
               }
             });
           }

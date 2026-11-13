@@ -1,9 +1,15 @@
 // Centralized error handling utility for iOS Apps extension
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { open, openExtensionPreferences, showToast, Toast } from "@raycast/api";
-import { invalidateAuthentication, loginToAppleId, Needs2FAError, NeedsLoginError } from "./auth";
+import {
+  AppleAccountActionError,
+  invalidateAuthentication,
+  loginToAppleId,
+  Needs2FAError,
+  NeedsLoginError,
+} from "./auth";
 import { analyzeIpatoolError } from "./ipatool-error-patterns";
+import { showError } from "./toast";
 
 /**
  * Sanitize query strings to remove potentially sensitive information before logging
@@ -150,6 +156,8 @@ export async function handleToolError(
   });
 
   if (shouldThrow) {
+    // Apple's dialog goes up as itself, so the next toast still offers its link.
+    if (error instanceof AppleAccountActionError) throw error;
     throw new Error(`${userMessage}: ${errorMessage}`);
   }
 }
@@ -239,6 +247,17 @@ export async function handleAuthError(
 
   // Log the error with context
   logger.error(`[authentication] Error: ${errorMessage}`);
+
+  // Apple wants the user on apple.com. Signing in again cannot help, and the
+  // saved password is not the problem, so neither is touched.
+  if (error instanceof AppleAccountActionError) {
+    await showError(error, {
+      title: "Apple Account Needs Attention",
+      ignoreAbort: false,
+    });
+    if (shouldThrow) throw error;
+    return;
+  }
 
   // Check if error is a specific custom error type
   const isNeedsLoginError = error instanceof NeedsLoginError;
@@ -336,6 +355,8 @@ export async function handleAuthError(
 
   // Optionally throw the error for further handling
   if (shouldThrow) {
+    // Apple's dialog goes up as itself, so the next toast still offers its link.
+    if (error instanceof AppleAccountActionError) throw error;
     throw new Error(`${userMessage}: ${errorMessage}`);
   }
 }

@@ -1,9 +1,9 @@
 // iTunes API utility functions
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { AppDetails, IpaToolSearchApp, ITunesResponse, ITunesResult } from "../types";
 import { ITUNES_API_BASE_URL, ITUNES_LOOKUP_ENDPOINT, ITUNES_SEARCH_ENDPOINT } from "./constants";
 import { DownloadPlatform, platformForITunesKind } from "./download-layout";
+import { showError } from "./toast";
 
 // iTunes API Constants (imported from centralized constants)
 const ITUNES_DEFAULT_COUNTRY = "us";

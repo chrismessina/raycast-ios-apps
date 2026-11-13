@@ -1,4 +1,3 @@
-import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast, Tool } from "@raycast/api";
 import type { ITunesResult, PlatformType } from "../types";
@@ -7,6 +6,7 @@ import { scrapeAppStoreScreenshots } from "../utils/app-store-scraper";
 import { convertITunesResultToAppDetails, searchITunesApps } from "../utils/itunes-api";
 import { getDownloadsDirectory } from "../utils/paths";
 import { downloadAppScreenshots } from "../utils/screenshot-downloader";
+import { failToast, showError } from "../utils/toast";
 
 type Input = {
   /** The name or search term for the iOS app */

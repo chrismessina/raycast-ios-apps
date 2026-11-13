@@ -1,4 +1,3 @@
-import { failToast } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { showToast, Toast } from "@raycast/api";
 import { searchApps } from "../ipatool";
@@ -6,6 +5,7 @@ import { AppDetails } from "../types";
 import { truncateAtWordBoundary } from "../utils/common";
 import { handleAppSearchError, sanitizeQuery } from "../utils/error-handler";
 import { enrichAppDetails } from "../utils/itunes-api";
+import { failToast } from "../utils/toast";
 
 // No initial confirmation - search will execute immediately
 

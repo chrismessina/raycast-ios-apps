@@ -104,3 +104,51 @@ export class DownloadCanceledError extends Error {
     this.name = "DownloadCanceledError";
   }
 }
+
+/**
+ * Apple answered a sign-in with a dialog that needs the user to act on
+ * apple.com (reset a password, unlock an account). ipatool 2.8.1+ prints it as
+ * `<message>: <explanation> (<button>: https://….apple.com/…)`, and only keeps
+ * links on apple.com over https. Typed at the origin so the toast can offer the
+ * link instead of the friendly-message mapping swallowing it.
+ */
+export class AppleAccountActionError extends Error {
+  readonly actionTitle: string;
+  readonly url: string;
+
+  constructor(message: string, actionTitle: string, url: string) {
+    super(message);
+    this.name = "AppleAccountActionError";
+    this.actionTitle = actionTitle;
+    this.url = url;
+  }
+}
+
+// The whole dialog shape ipatool prints: "message: explanation (Label: URL)",
+// with the link closing the line. A bare "(Label: URL)" is not enough.
+const DIALOG_ACTION = /^(.+?:\s.+?)\s*\(([^():]+): (https:\/\/(?:[a-z0-9-]+\.)*apple\.com(?:\/[^\s)]*)?)\)\s*$/i;
+
+/**
+ * Read Apple's dialog out of ipatool's sign-in output, or `undefined`. Each line
+ * may be a JSON log record (`--format json`), whose `error` field holds the text
+ * with Go's escaping undone; a plain line is read as is.
+ */
+export function parseAppleAccountAction(output: string): AppleAccountActionError | undefined {
+  for (const line of output.split(/\r?\n/)) {
+    let text = line.trim();
+    try {
+      const record: unknown = JSON.parse(text);
+      // A JSON record counts only through its `error` field.
+      if (!record || typeof record !== "object") continue;
+      const field = (record as { error?: unknown }).error;
+      if (typeof field !== "string") continue;
+      text = field.trim();
+    } catch {
+      // Not JSON; use the raw line.
+    }
+    const match = DIALOG_ACTION.exec(text);
+    if (!match) continue;
+    return new AppleAccountActionError(match[1].trim(), match[2].trim(), match[3]);
+  }
+  return undefined;
+}

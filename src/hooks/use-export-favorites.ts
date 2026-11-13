@@ -1,10 +1,10 @@
 import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { basename, extname, join } from "path";
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useCallback } from "react";
 import { Clipboard, showInFinder, showToast, Toast } from "@raycast/api";
+import { showError } from "../utils/toast";
 import { useFavoriteApps, type FavoriteApp } from "./use-favorite-apps";
 
 /**

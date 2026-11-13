@@ -1,4 +1,3 @@
-import { failToast, showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useEffect, useRef } from "react";
 import {
@@ -15,7 +14,7 @@ import {
 } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
 import { useAuthNavigation } from "./hooks/use-auth-navigation";
-import { getStoredCredentials, loginToAppleId, Needs2FAError } from "./utils/auth";
+import { AppleAccountActionError, getStoredCredentials, loginToAppleId, Needs2FAError } from "./utils/auth";
 import {
   diagnose,
   diagnosticsReport,
@@ -26,6 +25,7 @@ import {
   type CheckState,
   type Diagnosis,
 } from "./utils/doctor";
+import { failToast, showError } from "./utils/toast";
 
 const STATE_ICON: Record<CheckState, Image.ImageLike> = {
   ok: { source: Icon.CheckCircle, tintColor: Color.Green },
@@ -130,6 +130,10 @@ export default function Doctor() {
       quietRun.current = true;
       revalidate();
     } catch (error) {
+      if (error instanceof AppleAccountActionError) {
+        failToast(toast, error, { title: "Apple Account Needs Attention" });
+        return;
+      }
       await toast.hide();
       if (error instanceof Needs2FAError) {
         push2FAForm(revalidate);

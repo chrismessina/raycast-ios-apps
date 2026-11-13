@@ -1,8 +1,8 @@
-import { showError } from "@chrismessina/raycast-kit";
 import { logger } from "@chrismessina/raycast-logger";
 import { useRef, useState } from "react";
 import { Action, ActionPanel, Form, Keyboard, showToast, Toast, useNavigation } from "@raycast/api";
-import { loginToAppleId } from "../../utils/auth";
+import { AppleAccountActionError, loginToAppleId } from "../../utils/auth";
+import { showError } from "../../utils/toast";
 
 interface AppleTwoFactorFormProps {
   onSubmit: (credentials: { code: string }) => void | Promise<void>;
@@ -77,7 +77,12 @@ export function AppleTwoFactorForm({ onSubmit, credentials }: AppleTwoFactorForm
       const message = err instanceof Error ? err.message : String(err);
       // Apple asking for a code again is the resend. A NeedsLoginError is
       // not: it means no password was sent, so no code went out.
-      if ((err instanceof Error && err.name === "Needs2FAError") || /two-factor|2fa|verification code/i.test(message)) {
+      if (err instanceof AppleAccountActionError) {
+        await showError(err, { title: "Couldn't resend code", ignoreAbort: false });
+      } else if (
+        (err instanceof Error && err.name === "Needs2FAError") ||
+        /two-factor|2fa|verification code/i.test(message)
+      ) {
         await showToast({
           style: Toast.Style.Success,
           title: "Code resent",

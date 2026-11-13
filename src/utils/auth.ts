@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { logger } from "@chrismessina/raycast-logger";
 import { LocalStorage } from "@raycast/api";
 import {
+  AppleAccountActionError,
   AppleAuthGateError,
   AppleEmptyResponseError,
   BuiltInAppError,
@@ -15,6 +16,7 @@ import { executeIpatoolCommand, IpatoolSetupError, validateIpatoolInstallation }
 
 // Re-exported so every existing `from "./auth"` importer keeps working.
 export {
+  AppleAccountActionError,
   AppleAuthGateError,
   AppleEmptyResponseError,
   BuiltInAppError,
@@ -287,7 +289,12 @@ export async function loginToAppleId(appleId?: string, password?: string, twoFac
     // Re-throw our own typed errors as-is. AppleAuthGateError included: the
     // re-analysis below sees only the friendly text and would demote it to
     // generic, losing the "signing in again won't help" routing.
-    if (error instanceof NeedsLoginError || error instanceof Needs2FAError || error instanceof AppleAuthGateError) {
+    if (
+      error instanceof NeedsLoginError ||
+      error instanceof Needs2FAError ||
+      error instanceof AppleAuthGateError ||
+      error instanceof AppleAccountActionError
+    ) {
       throw error;
     }
 
@@ -500,7 +507,8 @@ async function ensureAuthenticatedUncached(options?: {
       error instanceof NeedsLoginError ||
       error instanceof Needs2FAError ||
       error instanceof IpatoolSetupError ||
-      error instanceof AppleAuthGateError
+      error instanceof AppleAuthGateError ||
+      error instanceof AppleAccountActionError
     ) {
       throw error;
     }
